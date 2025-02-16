@@ -1,15 +1,16 @@
 #define CREATE "CREATE"
 #define TABLE "TABLE"
-#define INIT "INIT"
-#define ERASE "ERASE"
-#define MAKE "MAKE"
-#define DEL "DEL"
-#define NUMBER "number"
-#define STRING "string"
-#define STR "str"
-#define CHANGE "CHANGE"
-#define INSERT "INSERT"
-#define ENTER "ENTER"
-#define CHOOSE "CHOOSE"
-#define BACK "BACK"
-#define EXIT "EXIT"
+#define INIT "INIT"  // to create database
+#define ERASE "ERASE" // to delete database
+#define CLEAN "CLEAN" // to empty database
+#define MAKE "MAKE" // to create table
+#define DEL "DEL" // to 
+#define NUMBER "number" // any integer or float number
+#define STRING "string" // infinite length string
+#define STR "str" // fixed length string
+#define CHANGE "CHANGE" // update value to table
+#define INSERT "INSERT" // to insert data to table
+#define ENTER "ENTER" // use database
+#define CHOOSE "CHOOSE" // use table
+#define BACK "BACK" // back to table selection or database selection
+#define EXIT "EXIT" // exit the program
