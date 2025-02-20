@@ -3,6 +3,7 @@
         "*.embeddedhtml": "html",
         "xstring": "cpp",
         "iostream": "cpp",
-        "algorithm": "cpp"
+        "algorithm": "cpp",
+        "stdexcept": "cpp"
     }
 }

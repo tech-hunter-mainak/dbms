@@ -33,7 +33,8 @@ int main(int argc, char const *argv[])
     fs::current_path(dirName);
     std::cout << "Current working directory: " << fs::current_path() << endl;
 
-    menu();
+    // menu();
+    input();
 
     return 0;
 }

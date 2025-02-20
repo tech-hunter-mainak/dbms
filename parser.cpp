@@ -282,62 +282,158 @@ void updateValue(const string &id, int column, const string &newValue) {
 }
 
 // Function to display menu
-void menu() {
-    createCSVIfNotExists();
+// void menu() {
+//     createCSVIfNotExists();
 
-    while (true) {
-        cout << "\nMenu:\n";
-        cout << "1. Insert data (insert(\"val1\", \"val2\", ...))\n";
-        cout << "2. Display data\n";
-        cout << "3. Delete row by ID\n";
-        cout << "4. Delete all except header\n";
-        cout << "5. Delete entire file\n";
-        cout << "6. Update value by ID\n";
-        cout << "7. Exit\n";
-        cout << "Enter choice: ";
+//     while (true) {
+//         cout << "\nMenu:\n";
+//         cout << "1. Insert data (insert(\"val1\", \"val2\", ...))\n";
+//         cout << "2. Display data\n";
+//         cout << "3. Delete row by ID\n";
+//         cout << "4. Delete all except header\n";
+//         cout << "5. Delete entire file\n";
+//         cout << "6. Update value by ID\n";
+//         cout << "7. Exit\n";
+//         cout << "Enter choice: ";
 
-        int choice;
-        cin >> choice;
-        cin.ignore();
+//         int choice;
+//         cin >> choice;
+//         cin.ignore();
 
-        if (choice == 1) {
-            cout << "Enter command (insert(\"value1\", \"value2\", ...)):\n> ";
-            string command;
-            getline(cin, command);
-            insertRow(command);
-        } 
-        else if (choice == 2) {
-            displayCSV();
-        } 
-        else if (choice == 3) {
-            cout << "Enter ID to delete: ";
-            string id;
-            cin >> id;
-            deleteRow(id);
-        } 
-        else if (choice == 4) {
-            deleteAllExceptHeader();
-        } 
-        else if (choice == 5) {
-            deleteFile();
-        } 
-        else if (choice == 6) {
-            cout << "Enter ID to update: ";
-            string id;
-            cout << "\nEnter column index (0-based): ";
-            int column;
-            cin >> column;
-            cout << "Enter new value: ";
-            string newValue;
-            cin >> newValue;
-            updateValue(id, column, newValue);
-        } 
-        else if (choice == 7) {
-            cout << "Exiting program...\n";
-            break;
-        } 
-        else {
-            cout << "Invalid choice. Try again.\n";
+//         if (choice == 1) {
+//             cout << "Enter command (insert(\"value1\", \"value2\", ...)):\n> ";
+//             string command;
+//             getline(cin, command);
+//             insertRow(command);
+//         } 
+//         else if (choice == 2) {
+//             displayCSV();
+//         } 
+//         else if (choice == 3) {
+//             cout << "Enter ID to delete: ";
+//             string id;
+//             cin >> id;
+//             deleteRow(id);
+//         } 
+//         else if (choice == 4) {
+//             deleteAllExceptHeader();
+//         } 
+//         else if (choice == 5) {
+//             deleteFile();
+//         } 
+//         else if (choice == 6) {
+//             cout << "Enter ID to update: ";
+//             string id;
+//             cout << "\nEnter column index (0-based): ";
+//             int column;
+//             cin >> column;
+//             cout << "Enter new value: ";
+//             string newValue;
+//             cin >> newValue;
+//             updateValue(id, column, newValue);
+//         } 
+//         else if (choice == 7) {
+//             cout << "Exiting program...\n";
+//             break;
+//         } 
+//         else {
+//             cout << "Invalid choice. Try again.\n";
+//         }
+//     }
+// }
+
+
+queue<string> input() {
+    string inputStr, word = "";
+    getline(cin, inputStr);
+    
+    queue<string> query;
+    stack<char> symbol;
+    bool s_quotation = false, d_quotation = false, inside_parentheses = false;
+    string parentheses_content = "";
+
+    for (char ch : inputStr) {
+        switch (ch) {
+            case '!':
+            case '<':
+            case '>':
+            case '=':
+            case ',':
+                if (!s_quotation && !d_quotation) {
+                    if (!word.empty()) {
+                        query.push(word);
+                        word.clear();
+                    }
+                    query.push(string(1, ch));  // Store operators separately
+                } else {
+                    word.push_back(ch);
+                }
+                break;
+            case ' ':
+                if (!s_quotation && !d_quotation) {  // If not inside quotes, push the word
+                    if (!word.empty()) query.push(word), word.clear();
+                } else word += ch;  // Otherwise, treat it as part of the word
+                break;
+
+            case '(':
+                if (!s_quotation && !d_quotation) {
+                    symbol.push(ch);
+                    inside_parentheses = true;
+                    parentheses_content = "";
+                } else word += ch;
+                break;
+
+            case ')':
+                if (!s_quotation && !d_quotation) {
+                    if (symbol.empty() || symbol.top() != '(') 
+                        throw logic_error("Mismatched parentheses");
+                    symbol.pop();
+                    inside_parentheses = false;
+
+                    // Check if parentheses contain only numbers or are enclosed in quotes
+                    bool valid = true;
+                    if (!parentheses_content.empty() && !s_quotation && !d_quotation) {
+                        for (char pc : parentheses_content) {
+                            if (!isdigit(pc)) {
+                                valid = false;
+                                break;
+                            }
+                        }
+                    }
+                    if (!valid) throw invalid_argument("Syntax error: Invalid content inside parentheses");
+                } else word += ch;
+                break;
+
+            case '\'':
+                if (!d_quotation) s_quotation = !s_quotation;
+                else word += ch;
+                break;
+
+            case '\"':
+                if (!s_quotation) d_quotation = !d_quotation;
+                else word += ch;
+                break;
+
+            default:
+                if (inside_parentheses && !s_quotation && !d_quotation) {
+                    parentheses_content += ch;
+                }
+                if((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' || ch <= '9')) {
+                    word += ch;
+                }
+                else {
+                    throw invalid_argument(ch + " is not expected here");
+                }
         }
     }
+    
+    if (!word.empty()) query.push(word);
+    if (!symbol.empty()) throw invalid_argument("Invalid expressions");
+
+    // Print queue content for verification
+    // while (!query.empty()) {
+    //     cout << query.front() << endl;
+    //     query.pop();
+    // }
+    return query;
 }
