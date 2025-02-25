@@ -1,57 +1,63 @@
 #include "library.cpp"
 #include "keywords.cpp"
+#include "initiateData.cpp"
 
 class parser
 {
 private:
-    string query = "";
-    vector<string> queryList;
 
 public:
-    parser(string str);
-    vector<string> split()
-    {
-        vector<string> words;
-        string word = "";
-        for (int i = 0; i < query.length(); i++)
-        {
-            if (query[i] == ' ')
-            {
-                if (!word.empty())
-                {
-                    words.push_back(word);
-                    word = "";
-                }
-            }
-            else
-            {
-                // convert to lowercase using tolower
-                if (query[i] >= 'a' && query[i] <= 'z')
-                {
-                    query[i] = toupper(query[i]);
-                }
-                word += query[i];
-            }
-        }
-        if (!word.empty())
-        { // Add the last word
-            words.push_back(word);
-        }
-        return words;
-    }
+    parser(list<string> &queryList);
     ~parser();
 };
 
-parser::parser(string str = "")
+parser::parser(list<string> &queryList)
 {
-    if (str != "")
+    for (auto query : queryList)
     {
-        query = str;
-    }
-    queryList = split();
-    for (auto s : queryList)
-    {
-        if (s == INIT)
+        if (query == INIT)
+        {
+        }
+        else if(query == MAKE)
+        {
+        }
+        else if(query == ERASE)
+        {
+        }
+        else if(query == CLEAN)
+        {
+        }
+        else if(query == DEL)
+        {
+        }
+        else if(query == CHANGE)
+        {
+        }
+        else if(query == INSERT)
+        {
+        }
+        else if(query == ENTER)
+        {
+        }
+        else if(query == CHOOSE)
+        {
+        }
+        else if(query == BACK)
+        {
+        }
+        else if(query == EXIT)
+        {
+        }
+        else if(query == OR)
+        {
+        }
+        else if(query == AND)
+        {
+        }
+        else if(query == WHERE)
+        {
+        }
+        else if(query == LIKE)
         {
         }
     }
@@ -59,7 +65,6 @@ parser::parser(string str = "")
 
 parser::~parser()
 {
-    query = "";
 }
 
 class table
@@ -89,16 +94,20 @@ database::~database() {}
 const string FILENAME = "data.csv";
 
 // Function to check if a file exists
-bool fileExists() {
+bool fileExists()
+{
     ifstream file(FILENAME);
     return file.good();
 }
 
 // Function to create a CSV file with a header if it doesn't exist
-void createCSVIfNotExists() {
-    if (!fileExists()) {
+void createCSVIfNotExists()
+{
+    if (!fileExists())
+    {
         ofstream file(FILENAME);
-        if (file.is_open()) {
+        if (file.is_open())
+        {
             file << "ID,Name,Age,Department\n"; // Adding header
             file.close();
         }
@@ -106,89 +115,108 @@ void createCSVIfNotExists() {
 }
 
 // Function to extract values from 'insert("value1", "value2", ...)'
-vector<string> extractValues(const string &command) {
+vector<string> extractValues(const string &command)
+{
     vector<string> values;
-    
+
     size_t start = command.find('(');
     size_t end = command.find(')');
-    
-    if (start == string::npos || end == string::npos || start > end) {
+
+    if (start == string::npos || end == string::npos || start > end)
+    {
         cout << "Invalid command format. Use: insert(\"value1\", \"value2\", ...)\n";
         return values;
     }
 
     string data = command.substr(start + 1, end - start - 1); // Extract inside ()
-    
+
     stringstream ss(data);
     string item;
-    
-    while (getline(ss, item, ',')) {
+
+    while (getline(ss, item, ','))
+    {
         // Trim spaces and remove quotes
         item.erase(remove(item.begin(), item.end(), '"'), item.end());
         item.erase(0, item.find_first_not_of(' '));
         item.erase(item.find_last_not_of(' ') + 1);
-        
+
         values.push_back(item);
     }
-    
+
     return values;
 }
 
 // Function to insert a row
-void insertRow(const string &command) {
+void insertRow(const string &command)
+{
     vector<string> values = extractValues(command);
-    
-    if (values.empty()) return;
+
+    if (values.empty())
+        return;
 
     ofstream file(FILENAME, ios::app);
-    if (file.is_open()) {
-        for (size_t i = 0; i < values.size(); i++) {
+    if (file.is_open())
+    {
+        for (size_t i = 0; i < values.size(); i++)
+        {
             file << values[i];
-            if (i < values.size() - 1) file << ",";
+            if (i < values.size() - 1)
+                file << ",";
         }
         file << "\n";
         file.close();
         cout << "Data inserted successfully.\n";
-    } else {
+    }
+    else
+    {
         cout << "Error opening file.\n";
     }
 }
 
 // Function to display file contents
-void displayCSV() {
+void displayCSV()
+{
     ifstream file(FILENAME);
-    if (!file.is_open()) {
+    if (!file.is_open())
+    {
         cout << "Error opening file.\n";
         return;
     }
 
     string line;
-    while (getline(file, line)) {
+    while (getline(file, line))
+    {
         cout << line << endl;
     }
     file.close();
 }
 
 // Function to delete a row based on ID
-void deleteRow(const string &id) {
+void deleteRow(const string &id)
+{
     ifstream file(FILENAME);
     ofstream temp("temp.csv");
     bool found = false;
-    
-    if (!file.is_open() || !temp.is_open()) {
+
+    if (!file.is_open() || !temp.is_open())
+    {
         cout << "Error opening file.\n";
         return;
     }
 
     string line;
-    while (getline(file, line)) {
+    while (getline(file, line))
+    {
         stringstream ss(line);
         string rowId;
         getline(ss, rowId, ',');
 
-        if (rowId != id) {
+        if (rowId != id)
+        {
             temp << line << "\n";
-        } else {
+        }
+        else
+        {
             found = true;
         }
     }
@@ -205,11 +233,13 @@ void deleteRow(const string &id) {
 }
 
 // Function to delete all rows except the header
-void deleteAllExceptHeader() {
+void deleteAllExceptHeader()
+{
     ifstream file(FILENAME);
     ofstream temp("temp.csv");
 
-    if (!file.is_open() || !temp.is_open()) {
+    if (!file.is_open() || !temp.is_open())
+    {
         cout << "Error opening file.\n";
         return;
     }
@@ -227,43 +257,56 @@ void deleteAllExceptHeader() {
 }
 
 // Function to delete the entire file
-void deleteFile() {
-    if (remove(FILENAME.c_str()) == 0) {
+void deleteFile()
+{
+    if (remove(FILENAME.c_str()) == 0)
+    {
         cout << "File deleted successfully.\n";
-    } else {
+    }
+    else
+    {
         cout << "Error deleting file.\n";
     }
 }
 
 // Function to update a value in the CSV
-void updateValue(const string &id, int column, const string &newValue) {
+void updateValue(const string &id, int column, const string &newValue)
+{
     ifstream file(FILENAME);
     ofstream temp("temp.csv");
     bool found = false;
 
-    if (!file.is_open() || !temp.is_open()) {
+    if (!file.is_open() || !temp.is_open())
+    {
         cout << "Error opening file.\n";
         return;
     }
 
     string line;
     bool isHeader = true;
-    while (getline(file, line)) {
+    while (getline(file, line))
+    {
         stringstream ss(line);
         vector<string> values;
         string item;
-        while (getline(ss, item, ',')) {
+        while (getline(ss, item, ','))
+        {
             values.push_back(item);
         }
 
-        if (isHeader || values[0] != id) {
+        if (isHeader || values[0] != id)
+        {
             temp << line << "\n";
-        } else {
+        }
+        else
+        {
             found = true;
             values[column] = newValue;
-            for (size_t i = 0; i < values.size(); i++) {
+            for (size_t i = 0; i < values.size(); i++)
+            {
                 temp << values[i];
-                if (i < values.size() - 1) temp << ",";
+                if (i < values.size() - 1)
+                    temp << ",";
             }
             temp << "\n";
         }
@@ -305,22 +348,22 @@ void updateValue(const string &id, int column, const string &newValue) {
 //             string command;
 //             getline(cin, command);
 //             insertRow(command);
-//         } 
+//         }
 //         else if (choice == 2) {
 //             displayCSV();
-//         } 
+//         }
 //         else if (choice == 3) {
 //             cout << "Enter ID to delete: ";
 //             string id;
 //             cin >> id;
 //             deleteRow(id);
-//         } 
+//         }
 //         else if (choice == 4) {
 //             deleteAllExceptHeader();
-//         } 
+//         }
 //         else if (choice == 5) {
 //             deleteFile();
-//         } 
+//         }
 //         else if (choice == 6) {
 //             cout << "Enter ID to update: ";
 //             string id;
@@ -331,68 +374,92 @@ void updateValue(const string &id, int column, const string &newValue) {
 //             string newValue;
 //             cin >> newValue;
 //             updateValue(id, column, newValue);
-//         } 
+//         }
 //         else if (choice == 7) {
 //             cout << "Exiting program...\n";
 //             break;
-//         } 
+//         }
 //         else {
 //             cout << "Invalid choice. Try again.\n";
 //         }
 //     }
 // }
 
-
-queue<string> input() {
+list<string> input() {
     string inputStr, word = "";
     getline(cin, inputStr);
-    
-    queue<string> query;
+
+    list<string> query;
     stack<char> symbol;
     bool s_quotation = false, d_quotation = false, inside_parentheses = false;
     string parentheses_content = "";
 
     for (char ch : inputStr) {
+        string symb = "";
         switch (ch) {
+            case '=':
+                if (!query.empty()) {  
+                    string symb = query.back(); // Check the last element in the list
+        
+                    // If the last token is one of '>', '<', or '!', merge it with '='
+                    if (symb == ">" || symb == "<" || symb == "!") { 
+                        query.pop_back();  // Remove the last token
+                        symb += "=";  // Append '='
+                        query.push_back(symb); // Push the new token (e.g., ">=")
+                    } else {
+                        query.push_back("=");  // If '=' is standalone, push it
+                    }
+                } else {
+                    throw invalid_argument("'=' is not expected at the beginning");
+                }
+                break;        
+
             case '!':
             case '<':
             case '>':
-            case '=':
             case ',':
                 if (!s_quotation && !d_quotation) {
                     if (!word.empty()) {
-                        query.push(word);
+                        query.push_back(word);
                         word.clear();
                     }
-                    query.push(string(1, ch));  // Store operators separately
+                    query.push_back(string(1, ch)); // Store operators separately
                 } else {
                     word.push_back(ch);
                 }
                 break;
+
             case ' ':
-                if (!s_quotation && !d_quotation) {  // If not inside quotes, push the word
-                    if (!word.empty()) query.push(word), word.clear();
-                } else word += ch;  // Otherwise, treat it as part of the word
+                if (!s_quotation && !d_quotation) { 
+                    if (!word.empty()) {
+                        query.push_back(word);
+                        word.clear();
+                    }
+                } else {
+                    word += ch;
+                }
                 break;
 
             case '(':
                 if (!s_quotation && !d_quotation) {
                     symbol.push(ch);
                     inside_parentheses = true;
-                    parentheses_content = "";
-                } else word += ch;
+                    parentheses_content.clear();
+                } else {
+                    word += ch;
+                }
                 break;
 
             case ')':
                 if (!s_quotation && !d_quotation) {
-                    if (symbol.empty() || symbol.top() != '(') 
+                    if (symbol.empty() || symbol.top() != '(')
                         throw logic_error("Mismatched parentheses");
                     symbol.pop();
                     inside_parentheses = false;
 
-                    // Check if parentheses contain only numbers or are enclosed in quotes
+                    // Validate content inside parentheses
                     bool valid = true;
-                    if (!parentheses_content.empty() && !s_quotation && !d_quotation) {
+                    if (!parentheses_content.empty()) {
                         for (char pc : parentheses_content) {
                             if (!isdigit(pc)) {
                                 valid = false;
@@ -400,40 +467,58 @@ queue<string> input() {
                             }
                         }
                     }
-                    if (!valid) throw invalid_argument("Syntax error: Invalid content inside parentheses");
-                } else word += ch;
+                    if (!valid)
+                        throw invalid_argument("Syntax error: Invalid content inside parentheses");
+
+                    // Push valid parentheses content
+                    if (!parentheses_content.empty()) {
+                        query.push_back(parentheses_content);
+                    }
+                } else {
+                    word += ch;
+                }
                 break;
 
             case '\'':
-                if (!d_quotation) s_quotation = !s_quotation;
-                else word += ch;
+                if (!d_quotation)
+                    s_quotation = !s_quotation;
+                else
+                    word += ch;
                 break;
 
             case '\"':
-                if (!s_quotation) d_quotation = !d_quotation;
-                else word += ch;
+                if (!s_quotation)
+                    d_quotation = !d_quotation;
+                else
+                    word += ch;
                 break;
 
             default:
                 if (inside_parentheses && !s_quotation && !d_quotation) {
                     parentheses_content += ch;
-                }
-                if((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' || ch <= '9')) {
-                    word += ch;
-                }
-                else {
-                    throw invalid_argument(ch + " is not expected here");
+                } else if (isalnum(ch)) {
+                    char c;
+                    if(isalpha(ch) && !(d_quotation || s_quotation)) {
+                        c = toupper(ch);
+                        word += c;
+                    }
+                    else
+                        word += ch;
+                } else {
+                    throw invalid_argument(string(1, ch) + " is not expected");
                 }
         }
     }
-    
-    if (!word.empty()) query.push(word);
-    if (!symbol.empty()) throw invalid_argument("Invalid expressions");
 
-    // Print queue content for verification
-    // while (!query.empty()) {
-    //     cout << query.front() << endl;
-    //     query.pop();
-    // }
+    if (!word.empty())
+        query.push_back(word);
+    if (!symbol.empty())
+        throw invalid_argument("Invalid expressions");
+
+    // Print list content for verification
+    for (const string& item : query) {
+        cout << item << endl;
+    }
+
     return query;
 }

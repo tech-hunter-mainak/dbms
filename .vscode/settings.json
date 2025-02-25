@@ -4,6 +4,7 @@
         "xstring": "cpp",
         "iostream": "cpp",
         "algorithm": "cpp",
-        "stdexcept": "cpp"
+        "stdexcept": "cpp",
+        "list": "cpp"
     }
 }

@@ -23,18 +23,16 @@ int main(int argc, char const *argv[])
         cout << "Directory already exists!" << endl;
     }
 
-    parser parse("CREATE DATABASE myDB");
-    for (auto i : parse.split())
-    {
-        cout << i << " ";
-    }
-
+    
     // Change the current working directory to the new directory
     fs::current_path(dirName);
     std::cout << "Current working directory: " << fs::current_path() << endl;
-
+    
     // menu();
-    input();
+    list<string> query = input();
+    parser parse(query);
+    retriveData();
+    printData();
 
     return 0;
 }

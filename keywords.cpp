@@ -14,3 +14,7 @@
 #define CHOOSE "CHOOSE" // use table
 #define BACK "BACK" // back to table selection or database selection
 #define EXIT "EXIT" // exit the program
+#define OR "OR"
+#define AND "AND"
+#define WHERE "WHERE"
+#define LIKE "LIKE"
