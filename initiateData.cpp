@@ -1,9 +1,29 @@
 #include "library.cpp"
+#include <fstream>
+#include <sstream>
+#include <iomanip>
+#include <iostream>
+#include <vector>
+#include <unordered_map>
+#include <filesystem>
+
+using namespace std;
+namespace fs = std::filesystem;
+
 string fs_path = "";
 
-struct Row {
+class Row {
+private:
     string id;
     vector<string> values;
+public:
+    // Default constructor
+    Row() : id(""), values() {}
+    // Parameterized constructor
+    Row(string id, vector<string> values) : id(id), values(values) {}
+    ~Row() {}
+
+    friend void printData();
 };
 
 int columnWidth = 15;
@@ -33,8 +53,7 @@ void retriveData() {
             headers = rowValues;
             isHeader = false;
         } else {
-            string id = rowValues[0]; // Assume first column is unique ID
-            dataMap[id] = {id, rowValues};
+            dataMap[rowValues[0]] = Row(rowValues[0], vector<string>(rowValues.begin() + 1, rowValues.end()));
         }
     }
     file.close();
@@ -46,8 +65,6 @@ void printData() {
         cout << "No data to display.\n";
         return;
     }
-
-    // Set column width
 
     // Print headers
     for (const auto& header : headers) {
@@ -64,22 +81,15 @@ void printData() {
     }
 }
 
-// Funtion to make a database
 bool init_database(string name){
-    if (!fs::exists(name))
-    {
-        if (fs::create_directory(name))
-        {
+    if (!fs::exists(name)) {
+        if (fs::create_directory(name)) {
             cout << "Directory created: " << name << endl;
-        }
-        else
-        {
+        } else {
             cerr << "Failed to create directory!" << endl;
             return false;
         }
-    }
-    else
-    {
+    } else {
         cout << "Directory already exists!" << endl;
         return false;
     }
@@ -88,17 +98,16 @@ bool init_database(string name){
 
 void use_db(string dbName){
     fs::current_path(dbName);
-    std::cout << "Current working directory: " << fs::current_path() << endl;
-    return ;
+    cout << "Current working directory: " << fs::current_path() << endl;
 }
 
 bool move_up(){
     fs::current_path("../");
     fs::path currentPath = fs::current_path();
 
-    if(currentPath.string() == fs_path){
+    if (currentPath.string() == fs_path) {
         return true;
     }
-    std::cout << "Current working directory: " << fs::current_path() << endl;
-    return ;
+    cout << "Current working directory: " << fs::current_path() << endl;
+    return true;
 }
