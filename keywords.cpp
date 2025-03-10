@@ -2,6 +2,8 @@
 #define TABLE "TABLE"
 #define INIT "INIT"  // to create database
 #define ERASE "ERASE" // to delete database
+#define EMPTY "EMPTY" // to empty database
+#define CLEAR "CLEAR" // to empty database
 #define CLEAN "CLEAN" // to empty database
 #define MAKE "MAKE" // to create table
 #define DEL "DEL" // to 
@@ -18,3 +20,4 @@
 #define AND "AND"
 #define WHERE "WHERE"
 #define LIKE "LIKE"
+#define WRITE "WRITE"

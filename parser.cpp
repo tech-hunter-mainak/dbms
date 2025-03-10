@@ -51,8 +51,53 @@ parser::parser(list<string> &queryList)
                 cerr << "Syntax error: unexpected token after database name" << endl;
                 return;
             }
+            clean_table();
         }
         else if(query == DEL)
+        {
+            string where = queryList.front();
+            string id = "";
+            string val = "";
+            if(where == WHERE) {
+                queryList.pop_front();
+                id = queryList.front();
+            }
+            queryList.pop_front();
+            if(queryList.front() == "=") {
+                queryList.pop_front();
+                val = queryList.front();
+            }
+            delete_row(id, val);
+        }
+        else if(query == EMPTY || query == CLEAR)
+        {
+            string dbname = queryList.front();
+            queryList.pop_front();
+            if(!queryList.empty())
+            {
+                cerr << "Syntax error: unexpected token after database name" << endl;
+                return;
+            }
+        }
+        else if(query == WRITE)
+        {
+            string dbname = queryList.front();
+            queryList.pop_front();
+            cout << "Writing data to " << dbname << endl;
+            if(!queryList.empty())
+            {
+                cerr << "Syntax error: unexpected token after database name" << endl;
+                return;
+            }
+            writeData(dbname);
+        }
+        else if(query == NUMBER)
+        {
+        }
+        else if(query == STRING)
+        {
+        }
+        else if(query == STR)
         {
         }
         else if(query == CHANGE)
@@ -87,16 +132,10 @@ parser::parser(list<string> &queryList)
                 use(table_name, "table");
             }
         }
-        else if(query == BACK)
-        {
-        }
         else if(query == OR)
         {
         }
         else if(query == AND)
-        {
-        }
-        else if(query == WHERE)
         {
         }
         else if(query == LIKE)
@@ -135,10 +174,6 @@ public:
 database::database() {}
 database::~database() {}
 
-/// @brief ///////////////////////
-//////////////////////////////////
-//////////////////////////////////
-//////////////////////////////////
 const string FILENAME = "data.csv";
 
 // Function to check if a file exists
