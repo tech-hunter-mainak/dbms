@@ -3,9 +3,8 @@
 
 int main(int argc, char const *argv[])
 {
-    std::string dirName = "database";
-
-    // Create directory if it does not exist
+    // Initialises database Parent folder 
+    std::string dirName = "DBMS";
     if (!fs::exists(dirName))
     {
         if (fs::create_directory(dirName))
@@ -22,17 +21,18 @@ int main(int argc, char const *argv[])
     {
         cout << "Directory already exists!" << endl;
     }
-
-    
-    // Change the current working directory to the new directory
     fs::current_path(dirName);
+
+    fs::path filePath = fs::current_path();
+    fs_path = filePath.string();
     std::cout << "Current working directory: " << fs::current_path() << endl;
     
     // menu();
-    list<string> query = input();
-    parser parse(query);
-    retriveData();
-    printData();
-
+    while(true){
+        list<string> query = input();
+        parser parse(query);
+        retriveData();
+        printData();
+    }
     return 0;
 }

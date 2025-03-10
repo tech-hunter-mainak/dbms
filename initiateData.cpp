@@ -1,4 +1,5 @@
 #include "library.cpp"
+string fs_path = "";
 
 struct Row {
     string id;
@@ -61,4 +62,43 @@ void printData() {
         }
         cout << "\n";
     }
+}
+
+// Funtion to make a database
+bool init_database(string name){
+    if (!fs::exists(name))
+    {
+        if (fs::create_directory(name))
+        {
+            cout << "Directory created: " << name << endl;
+        }
+        else
+        {
+            cerr << "Failed to create directory!" << endl;
+            return false;
+        }
+    }
+    else
+    {
+        cout << "Directory already exists!" << endl;
+        return false;
+    }
+    return true;
+}
+
+void use_db(string dbName){
+    fs::current_path(dbName);
+    std::cout << "Current working directory: " << fs::current_path() << endl;
+    return ;
+}
+
+bool move_up(){
+    fs::current_path("../");
+    fs::path currentPath = fs::current_path();
+
+    if(currentPath.string() == fs_path){
+        return true;
+    }
+    std::cout << "Current working directory: " << fs::current_path() << endl;
+    return ;
 }

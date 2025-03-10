@@ -2,30 +2,55 @@
 #include "keywords.cpp"
 #include "initiateData.cpp"
 
-class parser
-{
+class parser{
 private:
 
 public:
     parser(list<string> &queryList);
     ~parser();
 };
-
 parser::parser(list<string> &queryList)
 {
-    for (auto query : queryList)
+    while (!queryList.empty())
     {
+        string query = queryList.front();
+        queryList.pop_front();
         if (query == INIT)
         {
+            // databsae creation 
+            string dbName = queryList.front();
+            queryList.pop_front();
+            init_database(dbName);
         }
         else if(query == MAKE)
         {
+            string table_name = queryList.front();
+            queryList.pop_front();
+            if(!queryList.empty())
+            {
+                cerr << "Syntax error: unexpected token after database name" << endl;
+                return;
+            }
         }
         else if(query == ERASE)
         {
+            string dbname = queryList.front();
+            queryList.pop_front();
+            if(!queryList.empty())
+            {
+                cerr << "Syntax error: unexpected token after database name" << endl;
+                return;
+            }
         }
         else if(query == CLEAN)
         {
+            string dbname = queryList.front();
+            queryList.pop_front();
+            if(!queryList.empty())
+            {
+                cerr << "Syntax error: unexpected token after database name" << endl;
+                return;
+            }
         }
         else if(query == DEL)
         {
@@ -38,6 +63,14 @@ parser::parser(list<string> &queryList)
         }
         else if(query == ENTER)
         {
+            string dbname = queryList.front();
+            queryList.pop_front();
+            if(!queryList.empty())
+            {
+                cerr << "Syntax error: unexpected token after database name" << endl;
+                return;
+            }
+            use_db(dbname);
         }
         else if(query == CHOOSE)
         {
@@ -60,16 +93,22 @@ parser::parser(list<string> &queryList)
         else if(query == LIKE)
         {
         }
+        else if(query == EXIT){
+            // moves up to the parent directory 
+            if(!queryList.empty())
+            {
+                cerr << "Syntax error: unexpected token after database name" << endl;
+                return;
+            }
+            move_up();
+        }
     }
 }
 
-parser::~parser()
-{
-}
+parser::~parser(){}
 
 class table
 {
-private:
 public:
     table();
     ~table();
@@ -79,7 +118,6 @@ table::~table() {}
 
 class database
 {
-private:
 public:
     database();
     ~database();
@@ -113,6 +151,7 @@ void createCSVIfNotExists()
         }
     }
 }
+
 
 // Function to extract values from 'insert("value1", "value2", ...)'
 vector<string> extractValues(const string &command)
