@@ -63,22 +63,31 @@ parser::parser(list<string> &queryList)
         }
         else if(query == ENTER)
         {
-            string dbname = queryList.front();
+            string db_name = queryList.front();
             queryList.pop_front();
             if(!queryList.empty())
             {
                 cerr << "Syntax error: unexpected token after database name" << endl;
                 return;
             }
-            use_db(dbname);
+            if(fs::current_path().string() == fs_path){
+                use(db_name, "dir");
+            }
         }
         else if(query == CHOOSE)
         {
+            string table_name = queryList.front();
+            queryList.pop_front();
+            if(!queryList.empty())
+            {
+                cerr << "Syntax error: unexpected token after database name" << endl;
+                return;
+            }
+            if(fs::current_path().string() != fs_path){
+                use(table_name, "table");
+            }
         }
         else if(query == BACK)
-        {
-        }
-        else if(query == EXIT)
         {
         }
         else if(query == OR)
@@ -95,12 +104,13 @@ parser::parser(list<string> &queryList)
         }
         else if(query == EXIT){
             // moves up to the parent directory 
+            move_up();
             if(!queryList.empty())
             {
-                cerr << "Syntax error: unexpected token after database name" << endl;
+                cerr << "Syntax error." << endl;
                 return;
             }
-            move_up();
+            
         }
     }
 }

@@ -1,5 +1,6 @@
 #include "library.cpp"
 string fs_path = "";
+bool exitProgram = false;
 
 struct Row {
     string id;
@@ -7,11 +8,11 @@ struct Row {
 };
 
 int columnWidth = 15;
-const auto FILENAME_ = "./data.csv";
+
 unordered_map<string, Row> dataMap;
 vector<string> headers;
 
-void retriveData() {
+void retriveData(string FILENAME_) {
     ifstream file(FILENAME_);
     if (!file.is_open()) {
         cout << "Error opening file!\n";
@@ -86,18 +87,25 @@ bool init_database(string name){
     return true;
 }
 
-void use_db(string dbName){
-    fs::current_path(dbName);
-    std::cout << "Current working directory: " << fs::current_path() << endl;
+void use(string name, string type){
+    if(type == "dir"){
+        fs::current_path(name);
+        std::cout << "Current working directory: " << fs::current_path() << endl;
+    } else {
+        retriveData(name + ".csv");
+    }
     return ;
 }
 
-bool move_up(){
+
+
+void move_up(){
     fs::current_path("../");
+    cout<<"Current path"<<fs_path;
     fs::path currentPath = fs::current_path();
 
     if(currentPath.string() == fs_path){
-        return true;
+        exitProgram = true;
     }
     std::cout << "Current working directory: " << fs::current_path() << endl;
     return ;
