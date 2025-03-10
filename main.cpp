@@ -28,11 +28,9 @@ int main(int argc, char const *argv[])
     std::cout << "Current working directory: " << fs::current_path() << endl;
     
     // menu();
-    while(true){
+    while(!exitProgram){
         list<string> query = input();
         parser parse(query);
-        retriveData();
-        printData();
     }
     return 0;
 }
