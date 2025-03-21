@@ -18,3 +18,6 @@
 #define AND "AND"
 #define WHERE "WHERE"
 #define LIKE "LIKE"
+#define SHOW "SHOW"
+#define ROLLBACK "ROLLBACK"
+#define COMMIT "COMMIT"
