@@ -89,35 +89,33 @@ parser::parser(list<string> &queryList) {
             deleteRow(id);
         }
         else if (query == CHANGE) {
-            // CHANGE <ID> <column_name> <new_value>
-            if (queryList.size() < 3) {
-                cerr << "CHANGE: Not enough tokens provided." << endl;
+            // Expected syntax: CHANGE <column_name> <old_value> TO <new_value>
+            if (queryList.size() < 4) {
+                cerr << "CHANGE: Not enough tokens provided. Expected syntax: CHANGE <column_name> <old_value> TO <new_value>" << endl;
                 return;
             }
-            string id = queryList.front();
-            queryList.pop_front();
             string colName = queryList.front();
             queryList.pop_front();
+            // Remove leading and trailing double quotes from colName if present.
+            if (!colName.empty() && colName.front() == '"' && colName.back() == '"') {
+                colName = colName.substr(1, colName.size() - 2);
+            }
+            string oldValue = queryList.front();
+            queryList.pop_front();
+            string toKeyword = queryList.front();
+            queryList.pop_front();
+            if (toKeyword != "TO") {
+                cerr << "Syntax error: expected 'TO' after old value in CHANGE command" << endl;
+                return;
+            }
             string newValue = queryList.front();
             queryList.pop_front();
             if (!queryList.empty()) {
-                cerr << "Syntax error: unexpected tokens after CHANGE command" << endl;
+                cerr << "Syntax error: unexpected token(s) after new value in CHANGE command" << endl;
                 return;
             }
-            // Determine the column index by searching the headers.
-            int colIndex = -1;
-            for (int i = 0; i < headers.size(); i++) {
-                if (headers[i] == colName) {
-                    colIndex = i;
-                    break;
-                }
-            }
-            if(colIndex == -1){
-                cout << "Column \"" << colName << "\" not found." << endl;
-            } else {
-                updateValue(id, colIndex, newValue);
-            }
-        }
+            updateValueByCondition(colName, oldValue, newValue);
+        }        
         else if (query == INSERT) {
             // Expect one or more VALUES clauses.
             while (!queryList.empty()) {
@@ -205,6 +203,22 @@ parser::parser(list<string> &queryList) {
                 return;
             }
         }
+        else if (query == LIST) {
+            // Check context based on currentDatabase and currentTable.
+            if (currentDatabase == "" && currentTable == "") {
+                // At root level: list databases.
+                listDatabases();
+            }
+            else if (currentDatabase != "" && currentTable == "") {
+                // Inside a database: list tables.
+                listTables();
+            }
+            else if (currentDatabase != "" && currentTable != "") {
+                // Inside a table: listing is not allowed.
+                cout << "LIST command is not available in table context." << endl;
+            }
+        }
+                      
         else if (query == SHOW) {
             // SHOW <parameters...>
             string params;

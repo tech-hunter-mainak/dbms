@@ -23,3 +23,4 @@
 #define SHOW "SHOW"
 #define ROLLBACK "ROLLBACK"
 #define COMMIT "COMMIT"
+#define LIST "LIST"

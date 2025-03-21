@@ -26,7 +26,7 @@ public:
     // Give friend access to printData and show.
     friend void printData();
     friend void show(const string &params);
-    friend void updateValue(const string &id, int column, const string &newValue);
+    friend void updateValueByCondition(const string &colName, const string &oldValue, const string &newValue);
     friend void commitTransaction(const string &tableName);
 };
 
@@ -77,33 +77,39 @@ void deleteRow(const string &id)
 }
 
 // Updated function: updateValue now updates the in‑memory dataMap.
-void updateValue(const string &id, int column, const string &newValue)
+void updateValueByCondition(const string &colName, const string &oldValue, const string &newValue)
 {
-    auto it = dataMap.find(id);
-    if (it != dataMap.end())
-    {
-        if (column <= 0 || column > headers.size() - 1)
-        {
-            cout << "Invalid column index." << endl;
-            return;
-        }
-        int index = column - 1;  // Adjust for row.values indexing
-        if (index < it->second.values.size())
-        {
-            it->second.values[index] = newValue;
-            cout << "Value updated successfully in in-memory data." << endl;
-        }
-        else
-        {
-            cout << "Column index out of range." << endl;
+    int colIndex = -1;
+    for (int i = 0; i < headers.size(); i++) {
+        if (headers[i] == colName) {
+            colIndex = i;
+            break;
         }
     }
+    if (colIndex == -1) {
+        cout << "Column \"" << colName << "\" not found." << endl;
+        return;
+    }
+    // Prevent updating primary key column (assuming header[0] is primary key).
+    if (colIndex == 0) {
+        cout << "Primary key column cannot be updated." << endl;
+        return;
+    }
+    int updateCount = 0;
+    // Iterate over all rows and update matching rows.
+    for (auto &pair : dataMap) {
+        // Adjust index: row.values index for header i corresponds to i-1.
+        int index = colIndex - 1;
+        if (index < pair.second.values.size() && pair.second.values[index] == oldValue) {
+            pair.second.values[index] = newValue;
+            updateCount++;
+        }
+    }
+    if (updateCount > 0)
+        cout << updateCount << " row(s) updated successfully." << endl;
     else
-    {
-        cout << "ID not found in in-memory data." << endl;
-    }
+        cout << "No rows found with " << colName << " = " << oldValue << endl;
 }
-
 // Updated function: insertRow now adds a new row to the dataMap.
 void insertRow(const string &command)
 {
@@ -447,6 +453,42 @@ void move_up(){
 // Transaction mechanism for table (CSV file) operations.
 bool inTransaction = false;
 
+// Reads metadata from "table_metadata.txt" in the current directory.
+// Returns a mapping from table name to row count.
+map<string, int> readTableMetadata() {
+    map<string, int> metadata;
+    string metaFileName = "table_metadata.txt";
+    ifstream metaIn(metaFileName);
+    if (!metaIn.is_open())
+        return metadata; // Metadata file might not exist yet.
+    string line;
+    while(getline(metaIn, line)) {
+        if(line.empty())
+            continue;
+        istringstream iss(line);
+        string tableName;
+        int rowCount;
+        if (iss >> tableName >> rowCount)
+            metadata[tableName] = rowCount;
+    }
+    metaIn.close();
+    return metadata;
+}
+
+// Updates the metadata file with the row count for a given table.
+// Reads the existing metadata, updates (or adds) the entry, then writes it back.
+void updateTableMetadata(const string &tableName, int rowCount) {
+    string metaFileName = "table_metadata.txt";
+    map<string, int> metadata = readTableMetadata();
+    metadata[tableName] = rowCount;
+    ofstream metaOut(metaFileName);
+    for (const auto &p : metadata) {
+        metaOut << p.first << " " << p.second << "\n";
+    }
+    metaOut.close();
+}
+
+
 void beginTransaction(const string &tableName) {
     if(!inTransaction) {
         string filename = tableName + ".csv";
@@ -460,7 +502,6 @@ void beginTransaction(const string &tableName) {
     }
 }
 
-// Write the current in‑memory state to disk.
 void commitTransaction(const string &tableName)
 {
     string filename = tableName + ".csv";
@@ -470,6 +511,7 @@ void commitTransaction(const string &tableName)
         cout << "Error opening file for commit." << endl;
         return;
     }
+    // Write header row.
     for (size_t i = 0; i < headers.size(); i++)
     {
         file << headers[i];
@@ -477,7 +519,8 @@ void commitTransaction(const string &tableName)
             file << ",";
     }
     file << "\n";
-    // Write rows in the original order from rowOrder.
+    // Write each row stored in dataMap in the order defined by rowOrder.
+    // (Assumes a global vector<string> rowOrder is maintained.)
     for (const auto &id : rowOrder)
     {
         auto it = dataMap.find(id);
@@ -492,6 +535,8 @@ void commitTransaction(const string &tableName)
     }
     file.close();
     cout << "Commit successful. Changes written to file: " << fs::absolute(filename).string() << endl;
+    // Update metadata file with current row count.
+    updateTableMetadata(tableName, rowOrder.size());
 }
 
 // Rollback: Reload the in‑memory data from the CSV file.
@@ -600,5 +645,60 @@ bool eraseTable(const string &tableName) {
     } else {
         cout << "Table not found: " << tableName << endl;
         return false;
+    }
+}
+
+// Helper function to list all databases at root level.
+void listDatabases() {
+    fs::path rootPath = fs_path;  // Root DBMS folder
+    if (!fs::exists(rootPath)) {
+        cout << "Root DBMS directory not found." << endl;
+        return;
+    }
+    for (const auto &entry : fs::directory_iterator(rootPath)) {
+        if (entry.is_directory()) {
+            string dbName = entry.path().filename().string();
+            // Count CSV files (tables) in this database directory.
+            int tableCount = 0;
+            for (const auto &f : fs::directory_iterator(entry.path())) {
+                // Only count CSV files, ignoring metadata file.
+                if (f.is_regular_file() && f.path().extension() == ".csv" &&
+                    f.path().stem().string() != "table_metadata")
+                    tableCount++;
+            }
+            cout << dbName << " - " << tableCount << " tb" << endl;
+        }
+    }
+}
+
+
+// Lists tables in the current database using the metadata file.
+void listTables() {
+    fs::path dbPath = fs::current_path();  // Current directory is the selected database.
+    map<string, int> metadata = readTableMetadata();
+    for (const auto &entry : fs::directory_iterator(dbPath)) {
+        if (entry.is_regular_file() && entry.path().extension() == ".csv") {
+            string tableName = entry.path().stem().string();
+            // Skip the metadata file.
+            if (tableName == "table_metadata")
+                continue;
+            int rowCount = 0;
+            // Use metadata if available.
+            if (metadata.find(tableName) != metadata.end())
+                rowCount = metadata[tableName];
+            else {
+                // Fallback: count rows in the file (skip header).
+                ifstream file(entry.path());
+                string line;
+                bool header = true;
+                while(getline(file, line)) {
+                    if (header) { header = false; continue; }
+                    if (!line.empty())
+                        rowCount++;
+                }
+                file.close();
+            }
+            cout << tableName << " - " << rowCount << " rows" << endl;
+        }
     }
 }
