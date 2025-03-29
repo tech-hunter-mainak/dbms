@@ -142,7 +142,7 @@ parser::parser(list<string> &queryList) {
                 
         else if (query == ENTER) {
             // ENTER <database_name>
-            if(queryList.empty()){
+            if (queryList.empty()) {
                 cout << "ENTER: Database name expected." << endl;
                 continue;
             }
@@ -150,17 +150,25 @@ parser::parser(list<string> &queryList) {
             queryList.pop_front();
             if (!queryList.empty()) {
                 cerr << "Syntax error: unexpected token after database name in ENTER command" << endl;
-                return;
+                continue;
             }
-            if(fs::current_path().string() == fs_path) {
-                use(db_name, "dir");
-                currentDatabase = db_name;  // Updated: Set currentDatabase
-                currentTable = "";          // Reset currentTable
+            try {
+                // Check if the database directory exists.
+                if (fs::exists(db_name) && fs::is_directory(db_name)) {
+                    fs::current_path(db_name);
+                    currentDatabase = db_name;  // Set the current database.
+                    currentTable = "";          // Reset the current table.
+                    // cout << "Current working directory: " << fs::current_path().string() << endl;
+                } else {
+                    cout << "Database \"" << db_name << "\" does not exist. Create it using INIT command." << endl;
+                }
+            } catch (const fs::filesystem_error &e) {
+                cerr << "Filesystem error in ENTER command: " << e.what() << endl;
             }
         }
         else if (query == CHOOSE) {
             // CHOOSE <table_name>
-            if(queryList.empty()){
+            if (queryList.empty()) {
                 cout << "CHOOSE: Table name expected." << endl;
                 continue;
             }
@@ -168,20 +176,40 @@ parser::parser(list<string> &queryList) {
             queryList.pop_front();
             if (!queryList.empty()) {
                 cerr << "Syntax error: unexpected token after table name in CHOOSE command" << endl;
+                continue;
+            }
+            // Ensure we are inside a database.
+            if (currentDatabase.empty()) {
+                cout << "No database selected. Use ENTER <database> before choosing a table." << endl;
+                continue;
+            }
+            try {
+                string filename = table_name + ".csv";
+                // Check if the table file exists.
+                ifstream file(filename);
+                if (file.good()) {
+                    file.close();
+                    use(table_name, "table");
+                    currentTable = table_name;
+                } else {
+                    cout << "Table \"" << table_name << "\" does not exist." << endl;
+                }
+            } catch (const fs::filesystem_error &e) {
+                cerr << "Filesystem error in CHOOSE command: " << e.what() << endl;
+            }
+        }             
+        else if (query == "CRASH") {
+            if (!queryList.empty()) {
+                cerr << "Syntax error: unexpected token after CRASH command" << endl;
                 return;
             }
-            
-            // Only allow CHOOSE if we are inside a database directory.
-            if(fs::current_path().string() != fs_path){
-                string filename = table_name + ".csv";
-                ifstream file(filename);
-                if(!file.good()){
-                    cout << "Table " << table_name << " does not exist." << endl;
-                } else {
-                    use(table_name, "table");
-                    currentTable = table_name; 
-                }
-            }
+            // Clear session context and in-memory data.
+            dataMap.clear();
+            rowOrder.clear();
+            currentTable = "";
+            currentDatabase = "";
+            cout << "CRASH: Forcing immediate termination of the DBMS session." << endl;
+            exitProgram = true;
         }        
         else if (query == OR) {
             cout << "OR operator not implemented separately." << endl;
@@ -189,19 +217,13 @@ parser::parser(list<string> &queryList) {
         else if (query == AND) {
             cout << "AND operator not implemented separately." << endl;
         }
-        else if (query == WHERE) {
-            cout << "WHERE clause not implemented separately." << endl;
-        }
-        else if (query == LIKE) {
-            cout << "LIKE operator not implemented." << endl;
-        }
         else if (query == EXIT) {
-            // EXIT behaves like BACK here.
-            move_up();
             if (!queryList.empty()) {
                 cerr << "Syntax error: unexpected token after EXIT command" << endl;
                 return;
             }
+            // EXIT behaves like BACK here.
+            move_up();
         }
         else if (query == LIST) {
             // Check context based on currentDatabase and currentTable.
@@ -440,9 +462,9 @@ list<string> input() {
     }
     
     // For debugging: print tokens
-    for (const string &token : query) {
-        cout << token << endl;
-    }
+    // for (const string &token : query) {
+    //     cout << token << endl;
+    // }
     
     return query;
 }

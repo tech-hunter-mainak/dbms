@@ -25,20 +25,12 @@ int main(int argc, char const *argv[])
             return 1;
         }
     }
-    else
-    {
-        cout << "DBMS folder already exists at: \"" << fs::absolute(dbmsFolder).string() << "\"" << endl;
-    }
     fs::current_path(dbmsFolder);
     fs_path = fs::current_path().string();
     // fs_dbms_path = "../" + fs_path;
 
     while (!exitProgram)
     {
-        // Determine prompt based on context:
-        // - "dbms>" when no database is in use,
-        // - "<database>>" when a database is selected,
-        // - or "<table>>" if a table is active.
         string prompt;
         if (currentDatabase.empty())
             prompt = "dbms> ";
@@ -48,10 +40,16 @@ int main(int argc, char const *argv[])
             prompt = currentTable + "> ";
         
         cout << prompt;
-        list<string> query = input();
-        if (!query.empty())
+        list<string> tokens = input();
+        if (!tokens.empty())
         {
-            parser parse(query);
+            // Split tokens by pipe ("|") symbol.
+            list<list<string>> queries = splitQueries(tokens);
+            // Process each query group.
+            for (auto &q : queries) {
+                // You can do additional trimming or check here if needed.
+                parser p(q);
+            }
         }
     }
     return 0;

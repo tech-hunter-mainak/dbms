@@ -28,6 +28,7 @@ public:
     friend void show(const string &params);
     friend void updateValueByCondition(const string &colName, const string &oldValue, const string &newValue);
     friend void commitTransaction(const string &tableName);
+    friend bool evaluateRowConditions(const Row &row, const vector<vector<pair<string, string>>> &orGroups);
 };
 
 // Global data structures.
@@ -75,6 +76,108 @@ void deleteRow(const string &id)
         cout << "ID not found in in-memory data." << endl;
     }
 }
+
+// This function takes a vector of tokens (e.g. {"\"Student Name\"=\"Alice\"", "OR", "\"Age\"","=","\"25\""})
+// and returns a vector of OR groups. Each OR group is a vector of condition pairs {column, value}.
+// Conditions within an OR group are ANDed together.
+vector<vector<pair<string, string>>> parseConditions(const vector<string>& tokens) {
+    vector<vector<pair<string, string>>> orGroups;
+    vector<pair<string, string>> currentGroup;
+    int i = 0;
+    while (i < tokens.size()) {
+        string token = tokens[i];
+        // If token is "OR", finish the current group.
+        if (token == "OR") {
+            if (!currentGroup.empty()) {
+                orGroups.push_back(currentGroup);
+                currentGroup.clear();
+            }
+            i++;
+            continue;
+        }
+        // If token is "AND", skip it.
+        if (token == "AND") {
+            i++;
+            continue;
+        }
+        // Try to parse a condition.
+        string conditionStr = token;
+        // Check if the token contains '='.
+        size_t pos = conditionStr.find('=');
+        string col, val;
+        if (pos != string::npos) {
+            col = conditionStr.substr(0, pos);
+            val = conditionStr.substr(pos + 1);
+            i++;
+        } else {
+            // If token doesn't contain '=', assume condition is split as: column, '=', value.
+            col = token;
+            i++;
+            if (i < tokens.size() && tokens[i] == "=") {
+                i++; // Skip '=' token.
+                if (i < tokens.size()) {
+                    val = tokens[i];
+                    i++;
+                }
+            }
+        }
+        // Remove any surrounding quotes and trim spaces.
+        auto trimQuotes = [&](string s) -> string {
+            s.erase(0, s.find_first_not_of(" \t"));
+            s.erase(s.find_last_not_of(" \t") + 1);
+            if (!s.empty() && s.front() == '"' && s.back() == '"')
+                s = s.substr(1, s.size() - 2);
+            return s;
+        };
+        col = trimQuotes(col);
+        val = trimQuotes(val);
+        currentGroup.push_back({col, val});
+    }
+    if (!currentGroup.empty())
+        orGroups.push_back(currentGroup);
+    return orGroups;
+}
+
+bool evaluateRowConditions(const Row &row, const vector<vector<pair<string, string>>> &orGroups) {
+    // For each OR group, all conditions must be true.
+    for (const auto &group : orGroups) {
+        bool groupSatisfied = true;
+        for (const auto &cond : group) {
+            string colName = cond.first;
+            string expected = cond.second;
+            int colIndex = -1;
+            // Find the column index in headers.
+            for (int i = 0; i < headers.size(); i++) {
+                if (headers[i] == colName) {
+                    colIndex = i;
+                    break;
+                }
+            }
+            if (colIndex == -1) {
+                groupSatisfied = false;
+                break;
+            }
+            string actual;
+            if (colIndex == 0) {
+                actual = row.id;
+            } else {
+                int idx = colIndex - 1;
+                if (idx < row.values.size())
+                    actual = row.values[idx];
+                else
+                    actual = "";
+            }
+            if (actual != expected) {
+                groupSatisfied = false;
+                break;
+            }
+        }
+        if (groupSatisfied)
+            return true;  // At least one OR group is satisfied.
+    }
+    return false;
+}
+
 
 // Updated function: updateValue now updates the in‑memory dataMap.
 void updateValueByCondition(const string &colName, const string &oldValue, const string &newValue)
@@ -153,7 +256,7 @@ void retrieveData(string FILENAME_) {
     ifstream file(FILENAME_);
     if (!file.is_open())
     {
-        cout << "Error opening file!\n";
+        cout << "Error There is something wrong at the backend, check resources using cmd list.\n";
         return;
     }
     string line;
@@ -178,7 +281,7 @@ void retrieveData(string FILENAME_) {
         }
     }
     file.close();
-    cout << "Data loaded into memory.\n";
+    // cout << "Data loaded into memory.\n";
 }
 
 void printData()
@@ -226,11 +329,26 @@ bool init_database(string name) {
 }
 
 void use(string name, string type) {
-    if (type == "dir") {
-        fs::current_path(name);
-        cout << "Current working directory: " << fs::current_path() << endl;
-    } else {
-        retrieveData(name + ".csv");
+    try {
+        if (type == "dir") {
+            if (fs::exists(name) && fs::is_directory(name)) {
+                fs::current_path(name);
+                // cout << "Current working directory: " << fs::current_path() << endl;
+            } else {
+                cout << "Directory \"" << name << "\" does not exist." << endl;
+            }
+        } else {  // For table, we assume name + ".csv"
+            string filename = name + ".csv";
+            ifstream file(filename);
+            if (file.good()) {
+                file.close();
+                retrieveData(filename);
+            } else {
+                cout << "Table file \"" << filename << "\" does not exist." << endl;
+            }
+        }
+    } catch (const fs::filesystem_error &e) {
+        cerr << "Filesystem error in use(): " << e.what() << endl;
     }
 }
 
@@ -242,77 +360,47 @@ void show(const string &params = "") {
     while (iss >> token)
         tokens.push_back(token);
 
-    // For debugging: print tokens if needed.
-    // for (const auto &tok : tokens) cout << tok << endl;
-
     if (tokens.empty()) {
-        cout << "No arguments provided for show command.\n";
+        cout << "No arguments provided for SHOW command.\n";
         return;
     }
 
-    // Function to print header row.
-    auto printHeader = [&]() {
+    // Helper lambda to print the full header row.
+    auto printFullHeader = [&]() {
         for (const auto &hdr : headers)
             cout << setw(columnWidth) << left << hdr;
         cout << "\n" << string(headers.size() * columnWidth, '-') << "\n";
     };
 
-    // "SHOW *" command (with optional filtering)
+    // Helper lambda to print header for a single column.
+    auto printColumnHeader = [&](int colIndex) {
+        if (colIndex == 0)
+            cout << setw(columnWidth) << left << headers[0] << "\n";
+        else
+            cout << setw(columnWidth) << left << headers[colIndex] << "\n";
+        cout << string(columnWidth, '-') << "\n";
+    };
+
+    // Case: SHOW * [WHERE ...]
     if (tokens[0] == "*") {
-        // Handle "SHOW * WHERE ..." filtering.
         if (tokens.size() > 1 && tokens[1] == "WHERE") {
-            string colName, value;
-            if (tokens.size() == 3) {
-                size_t pos = tokens[2].find('=');
-                if (pos == string::npos) {
-                    cout << "Invalid criteria format. Expected COLUMN=VALUE.\n";
-                    return;
-                }
-                colName = tokens[2].substr(0, pos);
-                value = tokens[2].substr(pos + 1);
-            } else if (tokens.size() >= 5 && tokens[3] == "=") {
-                colName = tokens[2];
-                value = tokens[4];
-            } else {
-                cout << "Invalid criteria format.\n";
-                return;
-            }
-            // Remove leading and trailing quotes from colName, if present.
-            if (!colName.empty() && colName.front() == '"' && colName.back() == '"') {
-                colName = colName.substr(1, colName.size() - 2);
-            }
-            int colIndex = -1;
-            for (int i = 0; i < headers.size(); i++) {
-                if (headers[i] == colName) {
-                    colIndex = i;
-                    break;
-                }
-            }
-            if (colIndex == -1) {
-                cout << "Column `" << colName << "` not found.\n";
-                return;
-            }
-            printHeader();
-            // Iterate over rows in CSV order and display rows matching the criteria.
+            // Extract condition tokens (from index 2 onward).
+            vector<string> condTokens(tokens.begin() + 2, tokens.end());
+            vector<vector<pair<string, string>>> conditionGroups = parseConditions(condTokens);
+            printFullHeader();
+            // Iterate rows (in CSV order) and display rows that satisfy conditions.
             for (const auto &id : rowOrder) {
                 auto it = dataMap.find(id);
-                if (it != dataMap.end()) {
-                    bool match = false;
-                    if (colIndex == 0)
-                        match = (it->first == value);
-                    else if ((colIndex - 1) < it->second.values.size())
-                        match = (it->second.values[colIndex - 1] == value);
-                    if (match) {
-                        cout << setw(columnWidth) << left << it->first;
-                        for (const auto &val : it->second.values)
-                            cout << setw(columnWidth) << left << val;
-                        cout << "\n";
-                    }
+                if (it != dataMap.end() && evaluateRowConditions(it->second, conditionGroups)) {
+                    cout << setw(columnWidth) << left << it->first;
+                    for (const auto &val : it->second.values)
+                        cout << setw(columnWidth) << left << val;
+                    cout << "\n";
                 }
             }
         } else {
-            // "SHOW *" without filtering: display all rows in CSV order.
-            printHeader();
+            // SHOW * without filtering: display all rows.
+            printFullHeader();
             for (const auto &id : rowOrder) {
                 auto it = dataMap.find(id);
                 if (it != dataMap.end()) {
@@ -324,13 +412,14 @@ void show(const string &params = "") {
             }
         }
     }
-    // "SHOW HEAD": Display header and top defaultLimit rows.
+    // Case: SHOW HEAD – display top few rows (default 5)
     else if (tokens[0] == "HEAD") {
-        int defaultLimit = 5;  // Adjust the default as needed.
-        printHeader();
+        int defaultLimit = 5;
+        printFullHeader();
         int count = 0;
         for (const auto &id : rowOrder) {
-            if (count >= defaultLimit) break;
+            if (count >= defaultLimit)
+                break;
             auto it = dataMap.find(id);
             if (it != dataMap.end()) {
                 cout << setw(columnWidth) << left << it->first;
@@ -341,7 +430,7 @@ void show(const string &params = "") {
             }
         }
     }
-    // "SHOW LIMIT" commands.
+    // Case: SHOW LIMIT <n> or SHOW LIMIT ~<n>
     else if (tokens[0] == "LIMIT") {
         if (tokens.size() < 2) {
             cout << "Missing number for LIMIT command.\n";
@@ -356,19 +445,21 @@ void show(const string &params = "") {
         int limit = 0;
         try {
             limit = stoi(numToken);
-        } catch (const exception &e) {
+        } catch (...) {
             cout << "Invalid number for LIMIT command.\n";
             return;
         }
-        printHeader();
         if (limit <= 0) {
             cout << "Limit must be a positive integer.\n";
             return;
         }
+        printFullHeader();
+        int total = rowOrder.size();
         if (!fromBottom) {
             int count = 0;
             for (const auto &id : rowOrder) {
-                if (count >= limit) break;
+                if (count >= limit)
+                    break;
                 auto it = dataMap.find(id);
                 if (it != dataMap.end()) {
                     cout << setw(columnWidth) << left << it->first;
@@ -379,7 +470,6 @@ void show(const string &params = "") {
                 }
             }
         } else {
-            int total = rowOrder.size();
             int start = max(0, total - limit);
             for (int i = start; i < total; i++) {
                 auto it = dataMap.find(rowOrder[i]);
@@ -392,9 +482,13 @@ void show(const string &params = "") {
             }
         }
     }
-    // Otherwise, assume the command is "SHOW <column name>".
+    // Otherwise, assume the command is: SHOW <column_name> [WHERE ...]
     else {
+        // First token is assumed to be the column name.
         string colName = tokens[0];
+        // Remove surrounding quotes if present.
+        if (!colName.empty() && colName.front() == '"' && colName.back() == '"')
+            colName = colName.substr(1, colName.size() - 2);
         int colIndex = -1;
         for (int i = 0; i < headers.size(); i++) {
             if (headers[i] == colName) {
@@ -406,17 +500,40 @@ void show(const string &params = "") {
             cout << "Column \"" << colName << "\" not found.\n";
             return;
         }
-        cout << setw(columnWidth) << left << colName << "\n";
-        cout << string(columnWidth, '-') << "\n";
-        // Display the given column for each row in CSV order.
-        for (const auto &id : rowOrder) {
-            auto it = dataMap.find(id);
-            if (it != dataMap.end()) {
-                if (colIndex == 0)
-                    cout << setw(columnWidth) << left << it->first << "\n";
-                else {
-                    if ((colIndex - 1) < it->second.values.size())
-                        cout << setw(columnWidth) << left << it->second.values[colIndex - 1] << "\n";
+        // If a WHERE clause exists.
+        if (tokens.size() > 1 && tokens[1] == "WHERE") {
+            vector<string> condTokens(tokens.begin() + 2, tokens.end());
+            vector<vector<pair<string, string>>> conditionGroups = parseConditions(condTokens);
+            printColumnHeader(colIndex);
+            for (const auto &id : rowOrder) {
+                auto it = dataMap.find(id);
+                if (it != dataMap.end() && evaluateRowConditions(it->second, conditionGroups)) {
+                    string cell;
+                    if (colIndex == 0)
+                        cell = it->first;
+                    else {
+                        int idx = colIndex - 1;
+                        if (idx < it->second.values.size())
+                            cell = it->second.values[idx];
+                    }
+                    cout << setw(columnWidth) << left << cell << "\n";
+                }
+            }
+        } else {
+            // No WHERE clause: print the specified column for all rows.
+            printColumnHeader(colIndex);
+            for (const auto &id : rowOrder) {
+                auto it = dataMap.find(id);
+                if (it != dataMap.end()) {
+                    string cell;
+                    if (colIndex == 0)
+                        cell = it->first;
+                    else {
+                        int idx = colIndex - 1;
+                        if (idx < it->second.values.size())
+                            cell = it->second.values[idx];
+                    }
+                    cout << setw(columnWidth) << left << cell << "\n";
                 }
             }
         }
@@ -428,24 +545,24 @@ void move_up(){
     if(currentTable != ""){
         dataMap.clear();  // Clear in-memory data for the current table.
         rowOrder.clear();
-        cout << "Cleared in-memory data for table " << currentTable << endl;
+        // cout << "Cleared in-memory data for table " << currentTable << endl;
         currentTable = "";
         return;
     }
     if(currentPath.string() == fs_path) {
-        cout << "Already at the top-level directory (" << currentPath.string() << "). Exiting program." << endl;
+        cout << "Exiting program." << endl;
         exitProgram = true;
     } else {
         fs::current_path("../");
         currentPath = fs::current_path();
-        cout << "Moved up. Current working directory: " << currentPath.string() << endl;
+        // cout << "Moved up. Current working directory: " << currentPath.string() << endl;
         if(currentPath.string() == fs_path){
             currentDatabase = "";
             currentTable = "";
-            cout << "Now at top-level DBMS directory. Prompt is now: dbms> " << endl;
+            // cout << "Now at top-level DBMS directory. Prompt is now: dbms> " << endl;
         } else {
             currentTable = "";
-            cout << "Exited table context. Current database: " << currentDatabase << endl;
+            // cout << "Exited table context. Current database: " << currentDatabase << endl;
         }
     }
 }
@@ -609,7 +726,7 @@ void make_table(list<string> &queryList) {
             if (i < headers.size() - 1)
                 cout << ", ";
         }
-        cout << "\nLocation: " << fs::absolute(filename).string() << endl;
+        // cout << "\nLocation: " << fs::absolute(filename).string() << endl;
 
         currentTable = tableName;
         retrieveData(filename);
@@ -701,4 +818,22 @@ void listTables() {
             cout << tableName << " - " << rowCount << " rows" << endl;
         }
     }
+}
+list<list<string>> splitQueries(const list<string>& tokens) {
+    list<list<string>> queries;
+    list<string> current;
+    for (const auto &tok : tokens) {
+        if (tok == "|") {
+            if (!current.empty()) {
+                queries.push_back(current);
+                current.clear();
+            }
+        } else {
+            current.push_back(tok);
+        }
+    }
+    if (!current.empty()) {
+        queries.push_back(current);
+    }
+    return queries;
 }

@@ -24,3 +24,4 @@
 #define ROLLBACK "ROLLBACK"
 #define COMMIT "COMMIT"
 #define LIST "LIST"
+#define CRASH "CRASH"
