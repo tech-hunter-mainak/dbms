@@ -312,17 +312,18 @@ void printData()
 bool init_database(string name) {
     if (!fs::exists(name)) {
         if (fs::create_directory(name)) {
-            cout << "Directory created: " << name << endl;
+            cout << "Database created: " << name << endl;
+            cout<<"To access it use! ENTER "<<name<<"to access."<<endl;
         }
         else
         {
-            cerr << "Failed to create directory!" << endl;
+            cerr << "Failed to Initiate DataBase! Try using a Different name." << endl;
             return false;
         }
     }
     else
     {
-        cout << "Directory already exists!" << endl;
+        cout << "Database already exists! Use ENTER "<<name<<"to access." << endl;
         return false;
     }
     return true;
@@ -726,6 +727,7 @@ void make_table(list<string> &queryList) {
             if (i < headers.size() - 1)
                 cout << ", ";
         }
+        cout<<"\n";
         // cout << "\nLocation: " << fs::absolute(filename).string() << endl;
 
         currentTable = tableName;

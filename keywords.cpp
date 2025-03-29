@@ -1,5 +1,3 @@
-#define CREATE "CREATE"
-#define TABLE "TABLE"
 #define INIT "INIT"  // to create database
 #define ERASE "ERASE" // to delete database
 #define EMPTY "EMPTY" // to empty database

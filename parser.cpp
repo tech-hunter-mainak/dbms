@@ -210,12 +210,6 @@ parser::parser(list<string> &queryList) {
             currentDatabase = "";
             cout << "CRASH: Forcing immediate termination of the DBMS session." << endl;
             exitProgram = true;
-        }        
-        else if (query == OR) {
-            cout << "OR operator not implemented separately." << endl;
-        }
-        else if (query == AND) {
-            cout << "AND operator not implemented separately." << endl;
         }
         else if (query == EXIT) {
             if (!queryList.empty()) {
