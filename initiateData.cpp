@@ -354,7 +354,7 @@ void use(string name, string type) {
 }
 
 void show(const string &params = "") {
-    // Tokenize the input parameters.
+    // Tokenize the input parameters
     istringstream iss(params);
     vector<string> tokens;
     string token;
@@ -366,72 +366,71 @@ void show(const string &params = "") {
         return;
     }
 
-    // Helper lambda to print the full header row.
-    auto printFullHeader = [&]() {
-        for (const auto &hdr : headers)
-            cout << setw(columnWidth) << left << hdr;
-        cout << "\n" << string(headers.size() * columnWidth, '-') << "\n";
-    };
-
-    // Helper lambda to print header for a single column.
-    auto printColumnHeader = [&](int colIndex) {
-        if (colIndex == 0)
-            cout << setw(columnWidth) << left << headers[0] << "\n";
-        else
-            cout << setw(columnWidth) << left << headers[colIndex] << "\n";
-        cout << string(columnWidth, '-') << "\n";
-    };
-
-    // Case: SHOW * [WHERE ...]
-    if (tokens[0] == "*") {
-        if (tokens.size() > 1 && tokens[1] == "WHERE") {
-            // Extract condition tokens (from index 2 onward).
-            vector<string> condTokens(tokens.begin() + 2, tokens.end());
-            vector<vector<pair<string, string>>> conditionGroups = parseConditions(condTokens);
-            printFullHeader();
-            // Iterate rows (in CSV order) and display rows that satisfy conditions.
-            for (const auto &id : rowOrder) {
-                auto it = dataMap.find(id);
-                if (it != dataMap.end() && evaluateRowConditions(it->second, conditionGroups)) {
-                    cout << setw(columnWidth) << left << it->first;
-                    for (const auto &val : it->second.values)
-                        cout << setw(columnWidth) << left << val;
-                    cout << "\n";
-                }
-            }
-        } else {
-            // SHOW * without filtering: display all rows.
-            printFullHeader();
-            for (const auto &id : rowOrder) {
-                auto it = dataMap.find(id);
-                if (it != dataMap.end()) {
-                    cout << setw(columnWidth) << left << it->first;
-                    for (const auto &val : it->second.values)
-                        cout << setw(columnWidth) << left << val;
-                    cout << "\n";
-                }
+    // Calculate column widths dynamically
+    vector<int> columnWidths(headers.size(), 0);
+    for (int i = 0; i < headers.size(); ++i) {
+        columnWidths[i] = headers[i].size(); // Start with header length
+    }
+    // Update with the max length of data in each column
+    for (const auto &id : rowOrder) {
+        auto it = dataMap.find(id);
+        if (it != dataMap.end()) {
+            columnWidths[0] = max(columnWidths[0], (int)id.size()); // ID column
+            for (int i = 0; i < it->second.values.size(); ++i) {
+                columnWidths[i + 1] = max(columnWidths[i + 1], (int)it->second.values[i].size());
             }
         }
     }
-    // Case: SHOW HEAD – display top few rows (default 5)
+    // Add a buffer of 3 spaces for readability
+    for (auto &width : columnWidths) {
+        width += 3;
+    }
+
+    // Helper lambda to print the full header row
+    auto printFullHeader = [&]() {
+        for (int i = 0; i < headers.size(); ++i) {
+            cout << setw(columnWidths[i]) << left << headers[i];
+        }
+        cout << "\n";
+        for (int i = 0; i < headers.size(); ++i) {
+            cout << string(columnWidths[i], '-');
+        }
+        cout << "\n";
+    };
+
+    // Case: SHOW * (all columns)
+    if (tokens[0] == "*") {
+        printFullHeader();
+        for (const auto &id : rowOrder) {
+            auto it = dataMap.find(id);
+            if (it != dataMap.end()) {
+                cout << setw(columnWidths[0]) << left << id; // ID column
+                for (int i = 0; i < it->second.values.size(); ++i) {
+                    cout << setw(columnWidths[i + 1]) << left << it->second.values[i];
+                }
+                cout << "\n";
+            }
+        }
+    }
+    // Case: SHOW HEAD (first 5 rows)
     else if (tokens[0] == "HEAD") {
         int defaultLimit = 5;
         printFullHeader();
         int count = 0;
         for (const auto &id : rowOrder) {
-            if (count >= defaultLimit)
-                break;
+            if (count >= defaultLimit) break;
             auto it = dataMap.find(id);
             if (it != dataMap.end()) {
-                cout << setw(columnWidth) << left << it->first;
-                for (const auto &val : it->second.values)
-                    cout << setw(columnWidth) << left << val;
+                cout << setw(columnWidths[0]) << left << id;
+                for (int i = 0; i < it->second.values.size(); ++i) {
+                    cout << setw(columnWidths[i + 1]) << left << it->second.values[i];
+                }
                 cout << "\n";
                 count++;
             }
         }
     }
-    // Case: SHOW LIMIT <n> or SHOW LIMIT ~<n>
+    // Case: SHOW LIMIT <n>
     else if (tokens[0] == "LIMIT") {
         if (tokens.size() < 2) {
             cout << "Missing number for LIMIT command.\n";
@@ -439,7 +438,7 @@ void show(const string &params = "") {
         }
         bool fromBottom = false;
         string numToken = tokens[1];
-        if (numToken[0] == '~') {
+        if (numToken[0] == '~') { // Check for '~' to show rows from the bottom
             fromBottom = true;
             numToken = numToken.substr(1);
         }
@@ -454,42 +453,39 @@ void show(const string &params = "") {
             cout << "Limit must be a positive integer.\n";
             return;
         }
+
         printFullHeader();
-        int total = rowOrder.size();
         if (!fromBottom) {
             int count = 0;
             for (const auto &id : rowOrder) {
-                if (count >= limit)
-                    break;
+                if (count >= limit) break;
                 auto it = dataMap.find(id);
                 if (it != dataMap.end()) {
-                    cout << setw(columnWidth) << left << it->first;
-                    for (const auto &val : it->second.values)
-                        cout << setw(columnWidth) << left << val;
+                    cout << setw(columnWidths[0]) << left << id;
+                    for (int i = 0; i < it->second.values.size(); ++i) {
+                        cout << setw(columnWidths[i + 1]) << left << it->second.values[i];
+                    }
                     cout << "\n";
                     count++;
                 }
             }
         } else {
-            int start = max(0, total - limit);
-            for (int i = start; i < total; i++) {
+            int startIndex = max(0, (int)rowOrder.size() - limit);
+            for (int i = startIndex; i < rowOrder.size(); ++i) {
                 auto it = dataMap.find(rowOrder[i]);
                 if (it != dataMap.end()) {
-                    cout << setw(columnWidth) << left << it->first;
-                    for (const auto &val : it->second.values)
-                        cout << setw(columnWidth) << left << val;
+                    cout << setw(columnWidths[0]) << left << rowOrder[i];
+                    for (int j = 0; j < it->second.values.size(); ++j) {
+                        cout << setw(columnWidths[j + 1]) << left << it->second.values[j];
+                    }
                     cout << "\n";
                 }
             }
         }
     }
-    // Otherwise, assume the command is: SHOW <column_name> [WHERE ...]
+    // Case: SHOW <specific_column_name>
     else {
-        // First token is assumed to be the column name.
         string colName = tokens[0];
-        // Remove surrounding quotes if present.
-        if (!colName.empty() && colName.front() == '"' && colName.back() == '"')
-            colName = colName.substr(1, colName.size() - 2);
         int colIndex = -1;
         for (int i = 0; i < headers.size(); i++) {
             if (headers[i] == colName) {
@@ -501,41 +497,14 @@ void show(const string &params = "") {
             cout << "Column \"" << colName << "\" not found.\n";
             return;
         }
-        // If a WHERE clause exists.
-        if (tokens.size() > 1 && tokens[1] == "WHERE") {
-            vector<string> condTokens(tokens.begin() + 2, tokens.end());
-            vector<vector<pair<string, string>>> conditionGroups = parseConditions(condTokens);
-            printColumnHeader(colIndex);
-            for (const auto &id : rowOrder) {
-                auto it = dataMap.find(id);
-                if (it != dataMap.end() && evaluateRowConditions(it->second, conditionGroups)) {
-                    string cell;
-                    if (colIndex == 0)
-                        cell = it->first;
-                    else {
-                        int idx = colIndex - 1;
-                        if (idx < it->second.values.size())
-                            cell = it->second.values[idx];
-                    }
-                    cout << setw(columnWidth) << left << cell << "\n";
-                }
-            }
-        } else {
-            // No WHERE clause: print the specified column for all rows.
-            printColumnHeader(colIndex);
-            for (const auto &id : rowOrder) {
-                auto it = dataMap.find(id);
-                if (it != dataMap.end()) {
-                    string cell;
-                    if (colIndex == 0)
-                        cell = it->first;
-                    else {
-                        int idx = colIndex - 1;
-                        if (idx < it->second.values.size())
-                            cell = it->second.values[idx];
-                    }
-                    cout << setw(columnWidth) << left << cell << "\n";
-                }
+
+        cout << setw(columnWidths[colIndex]) << left << headers[colIndex] << "\n";
+        cout << string(columnWidths[colIndex], '-') << "\n";
+        for (const auto &id : rowOrder) {
+            auto it = dataMap.find(id);
+            if (it != dataMap.end()) {
+                string cell = (colIndex == 0) ? id : it->second.values[colIndex - 1];
+                cout << setw(columnWidths[colIndex]) << left << cell << "\n";
             }
         }
     }
