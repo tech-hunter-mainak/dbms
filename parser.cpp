@@ -1,10 +1,16 @@
 #include "library.cpp"
 #include "keywords.cpp"
-#include "initiateData.cpp"
+#include "initiateData.cpp"  // Contains the free function make_table (among others)
+#include "table.cpp"         // Contains the Table class with encapsulated operations
 
 extern string fs_path;         // Root DBMS folder path
 extern string currentDatabase; // Currently selected database name (empty if none)
 extern string currentTable;    // Currently selected table name (empty if none)
+extern bool exitProgram;  // Declaration of the global variable
+
+// Global pointer to the current Table instance.
+Table* currentTableInstance = nullptr;
+
 
 class parser {
 public:
@@ -19,7 +25,7 @@ parser::parser(list<string> &queryList) {
     
         if (query == INIT) {
             // INIT <database_name>
-            if(queryList.empty()){
+            if (queryList.empty()) {
                 cout << "INIT: Database name expected." << endl;
                 continue;
             }
@@ -28,16 +34,27 @@ parser::parser(list<string> &queryList) {
             init_database(dbName);
         }
         else if (query == MAKE) {
+            // MAKE <table_name> [ ( <column_definitions> ) ]
             if (queryList.empty()) {
                 cout << "MAKE: Table name expected." << endl;
                 continue;
             }
+            // Call the free function make_table (defined in initiateData.cpp)
             make_table(queryList);
-        }                        
+            // After creation, currentTable should be set by make_table.
+            // Create a new Table instance to manage further operations.
+            if (!currentTable.empty()) {
+                if (currentTableInstance) {
+                    delete currentTableInstance;
+                    currentTableInstance = nullptr;
+                }
+                currentTableInstance = new Table(currentTable);
+            }
+        }
         else if (query == ERASE) {
-            // Expect a name (database or table) to erase.
-            if(queryList.empty()){
-                if(currentDatabase.empty())
+            // ERASE <database or table name>
+            if (queryList.empty()) {
+                if (currentDatabase.empty())
                     cout << "ERASE: Database name expected." << endl;
                 else
                     cout << "ERASE: Table name expected." << endl;
@@ -51,95 +68,195 @@ parser::parser(list<string> &queryList) {
             }
             
             // At root level (no database selected): erase a database.
-            if(currentDatabase.empty()){
-                if(eraseDatabase(name)){
-                    // Optionally, if the erased database was current (shouldn't happen if you're at root)
-                    if(currentDatabase == name)
+            if (currentDatabase.empty()) {
+                if (eraseDatabase(name)) {
+                    if (currentDatabase == name)
                         currentDatabase = "";
                 }
             }
             // Inside a database: erase a table.
             else {
-                if(eraseTable(name)){
-                    if(currentTable == name)
+                if (eraseTable(name)) {
+                    if (currentTable == name)
                         currentTable = "";
+                    if (currentTableInstance) {
+                        delete currentTableInstance;
+                        currentTableInstance = nullptr;
+                    }
                 }
             }
         }
-        
         else if (query == CLEAN) {
-            if(currentTable == ""){
-                cout<<"please choose a table before cleaning"<<endl;
-            } else{
-                    cleanTable();
+            if (currentTable == "") {
+                cout << "Please choose a table before cleaning." << endl;
+            } else {
+                if (currentTableInstance)
+                    currentTableInstance->cleanTable();
+                else
+                    cout << "No table instance available for cleaning." << endl;
             }
         }
         else if (query == DEL) {
-            // DEL <ID>
             if (queryList.empty()) {
-                cout << "DEL: No ID provided." << endl;
+                cout << "DEL: No arguments provided." << endl;
                 continue;
             }
-            string id = queryList.front();
-            queryList.pop_front();
-            if (!queryList.empty()) {
-                cerr << "Syntax error: unexpected token after ID in DEL command" << endl;
-                return;
+            // Check if deletion is based on conditions.
+            if (queryList.front() == WHERE) {
+                queryList.pop_front();  // Remove the WHERE token.
+                // Copy the remaining tokens into a vector.
+                vector<string> condTokens(queryList.begin(), queryList.end());
+                // Clear the query list so tokens aren’t processed again.
+                queryList.clear();
+                // Call the advanced condition parser.
+                vector<vector<Condition>> conditionGroups = parseAdvancedConditions(condTokens);
+                if (currentTableInstance)
+                    currentTableInstance->deleteRowsByAdvancedConditions(conditionGroups);
+                else
+                    cout << "No table selected for deletion." << endl;
             }
-            deleteRow(id);
-        }
+            else {
+                // Otherwise, treat tokens as either row IDs or column names.
+                vector<string> items;
+                while (!queryList.empty()) {
+                    string token = queryList.front();
+                    queryList.pop_front();
+                    // If the token contains commas, split it.
+                    size_t pos = 0;
+                    while ((pos = token.find(',')) != string::npos) {
+                        string part = token.substr(0, pos);
+                        if (!part.empty())
+                            items.push_back(part);
+                        token = token.substr(pos + 1);
+                    }
+                    if (!token.empty())
+                        items.push_back(token);
+                }
+                // Process each item: trim whitespace and remove surrounding quotes.
+                for (auto &item : items) {
+                    // Trim whitespace.
+                    item.erase(0, item.find_first_not_of(" \t"));
+                    item.erase(item.find_last_not_of(" \t") + 1);
+                    // Remove surrounding quotes if present.
+                    if (!item.empty() && item.front() == '"' && item.back() == '"') {
+                        item = item.substr(1, item.size() - 2);
+                    }
+                    if (currentTableInstance) {
+                        if (currentTableInstance->hasRow(item))
+                            currentTableInstance->deleteRow(item);
+                        else if (currentTableInstance->hasColumn(item))
+                            currentTableInstance->deleteColumn(item);
+                        else
+                            cout << "DEL: Neither a row with ID nor a column named \"" << item << "\" exists." << endl;
+                    } else {
+                        cout << "No table selected for deletion." << endl;
+                    }
+                }
+            }
+        }               
         else if (query == CHANGE) {
-            // Expected syntax: CHANGE <column_name> <old_value> TO <new_value>
-            if (queryList.size() < 4) {
-                cerr << "CHANGE: Not enough tokens provided. Expected syntax: CHANGE <column_name> <old_value> TO <new_value>" << endl;
+            // This branch supports two syntaxes:
+            // Syntax 1: CHANGE <column_name> <old_value> TO <new_value> Where <condition>
+            // Syntax 2: CHANGE <old_value> TO <new_value> Where <condition>
+            if (queryList.empty()) {
+                cerr << "CHANGE: Not enough tokens provided." << endl;
                 return;
             }
-            string colName = queryList.front();
+            
+            bool hasColumnSpecified = false;
+            string colName, oldValue, newValue;
+            
+            // Peek at the first token.
+            string firstToken = queryList.front();
             queryList.pop_front();
-            // Remove leading and trailing double quotes from colName if present.
-            if (!colName.empty() && colName.front() == '"' && colName.back() == '"') {
-                colName = colName.substr(1, colName.size() - 2);
+            
+            // If the next token is "TO", then it's Syntax 2 (no column specified).
+            if (!queryList.empty() && queryList.front() == "TO") {
+                oldValue = firstToken;
+                // Remove "TO"
+                queryList.pop_front();
+                if (queryList.empty()) {
+                    cerr << "CHANGE: New value missing." << endl;
+                    return;
+                }
+                newValue = queryList.front();
+                queryList.pop_front();
+            } else {
+                // Otherwise, it's Syntax 1 (with column name).
+                hasColumnSpecified = true;
+                colName = firstToken;
+                // Remove surrounding quotes if present.
+                if (!colName.empty() && colName.front() == '"' && colName.back() == '"') {
+                    colName = colName.substr(1, colName.size() - 2);
+                }
+                if (queryList.empty()) {
+                    cerr << "CHANGE: Missing old value." << endl;
+                    return;
+                }
+                oldValue = queryList.front();
+                queryList.pop_front();
+                if (queryList.empty() || queryList.front() != "TO") {
+                    cerr << "CHANGE: Expected 'TO' after old value." << endl;
+                    return;
+                }
+                // Remove "TO"
+                queryList.pop_front();
+                if (queryList.empty()) {
+                    cerr << "CHANGE: Missing new value." << endl;
+                    return;
+                }
+                newValue = queryList.front();
+                queryList.pop_front();
             }
-            string oldValue = queryList.front();
-            queryList.pop_front();
-            string toKeyword = queryList.front();
-            queryList.pop_front();
-            if (toKeyword != "TO") {
-                cerr << "Syntax error: expected 'TO' after old value in CHANGE command" << endl;
-                return;
-            }
-            string newValue = queryList.front();
-            queryList.pop_front();
+            
+            // Optional: Look for a WHERE clause.
+            vector<vector<Condition>> conditionGroups;
             if (!queryList.empty()) {
-                cerr << "Syntax error: unexpected token(s) after new value in CHANGE command" << endl;
+                string token = queryList.front();
+                if (token == "where" || token == "WHERE") {
+                    queryList.pop_front();  // Remove the WHERE token.
+                    vector<string> condTokens(queryList.begin(), queryList.end());
+                    conditionGroups = parseAdvancedConditions(condTokens);
+                } else {
+                    cerr << "Syntax error: unexpected token(s) after new value in CHANGE command" << endl;
+                    return;
+                }
+            }
+            
+            if (!currentTableInstance) {
+                cout << "No table selected for update." << endl;
                 return;
             }
-            updateValueByCondition(colName, oldValue, newValue);
+            
+            // Call the appropriate Table method.
+            if (hasColumnSpecified)
+                currentTableInstance->updateValueByCondition(colName, oldValue, newValue, conditionGroups);
+            else
+                currentTableInstance->updateValueByCondition(oldValue, newValue, conditionGroups);
         }        
         else if (query == INSERT) {
             // Expect one or more VALUES clauses.
             while (!queryList.empty()) {
                 string token = queryList.front();
                 queryList.pop_front();
-                if (token != "VALUES") {
+                if (token != VALUES) {
                     cout << "Unexpected token in INSERT command: " << token << endl;
                     continue;
                 }
-                // The next token should be the parenthesized content (already grouped by input()).
                 if (queryList.empty()){
                     cout << "VALUES: expected parenthesized list after VALUES keyword." << endl;
                     break;
                 }
                 string valuesToken = queryList.front();
                 queryList.pop_front();
-                // Reconstruct a command string that insertRow() understands.
-                // We add back the parentheses for extractValues() to work.
+                // Reconstruct a command string for insertRow.
                 string insertCommand = "INSERT(" + valuesToken + ")";
-                insertRow(insertCommand);
+                if (currentTableInstance)
+                    currentTableInstance->insertRow(insertCommand);
+                else
+                    cout << "No table selected for insertion." << endl;
             }
         }
-        
-                
         else if (query == ENTER) {
             // ENTER <database_name>
             if (queryList.empty()) {
@@ -153,12 +270,14 @@ parser::parser(list<string> &queryList) {
                 continue;
             }
             try {
-                // Check if the database directory exists.
                 if (fs::exists(db_name) && fs::is_directory(db_name)) {
                     fs::current_path(db_name);
-                    currentDatabase = db_name;  // Set the current database.
-                    currentTable = "";          // Reset the current table.
-                    // cout << "Current working directory: " << fs::current_path().string() << endl;
+                    currentDatabase = db_name;
+                    currentTable = "";
+                    if (currentTableInstance) {
+                        delete currentTableInstance;
+                        currentTableInstance = nullptr;
+                    }
                 } else {
                     cout << "Database \"" << db_name << "\" does not exist. Create it using INIT command." << endl;
                 }
@@ -178,34 +297,38 @@ parser::parser(list<string> &queryList) {
                 cerr << "Syntax error: unexpected token after table name in CHOOSE command" << endl;
                 continue;
             }
-            // Ensure we are inside a database.
             if (currentDatabase.empty()) {
                 cout << "No database selected. Use ENTER <database> before choosing a table." << endl;
                 continue;
             }
             try {
                 string filename = table_name + ".csv";
-                // Check if the table file exists.
                 ifstream file(filename);
                 if (file.good()) {
                     file.close();
-                    use(table_name, "table");
+                    // Optionally, call use(table_name, "table") if needed.
                     currentTable = table_name;
+                    if (currentTableInstance) {
+                        delete currentTableInstance;
+                        currentTableInstance = nullptr;
+                    }
+                    currentTableInstance = new Table(table_name);
                 } else {
                     cout << "Table \"" << table_name << "\" does not exist." << endl;
                 }
             } catch (const fs::filesystem_error &e) {
                 cerr << "Filesystem error in CHOOSE command: " << e.what() << endl;
             }
-        }             
-        else if (query == "CRASH") {
+        }
+        else if (query == CRASH) {
             if (!queryList.empty()) {
                 cerr << "Syntax error: unexpected token after CRASH command" << endl;
                 return;
             }
-            // Clear session context and in-memory data.
-            dataMap.clear();
-            rowOrder.clear();
+            if (currentTableInstance) {
+                delete currentTableInstance;
+                currentTableInstance = nullptr;
+            }
             currentTable = "";
             currentDatabase = "";
             cout << "CRASH: Forcing immediate termination of the DBMS session." << endl;
@@ -216,27 +339,20 @@ parser::parser(list<string> &queryList) {
                 cerr << "Syntax error: unexpected token after EXIT command" << endl;
                 return;
             }
-            // EXIT behaves like BACK here.
             move_up();
         }
         else if (query == LIST) {
-            // Check context based on currentDatabase and currentTable.
             if (currentDatabase == "" && currentTable == "") {
-                // At root level: list databases.
                 listDatabases();
             }
             else if (currentDatabase != "" && currentTable == "") {
-                // Inside a database: list tables.
                 listTables();
             }
             else if (currentDatabase != "" && currentTable != "") {
-                // Inside a table: listing is not allowed.
                 cout << "LIST command is not available in table context." << endl;
             }
         }
-                      
         else if (query == SHOW) {
-            // SHOW <parameters...>
             string params;
             while (!queryList.empty()) {
                 params += queryList.front() + " ";
@@ -244,21 +360,30 @@ parser::parser(list<string> &queryList) {
             }
             if (!params.empty())
                 params.pop_back();
-            show(params);
+            if (currentTableInstance)
+                currentTableInstance->show(params);
+            else
+                cout << "No table selected for SHOW command." << endl;
         }
-        else if(query == ROLLBACK) {
-            if(currentTable.empty()){
+        else if (query == ROLLBACK) {
+            if (currentTable.empty()){
                 cout << "No table selected for transaction rollback." << endl;
                 return;
             }
-            rollbackTransaction(currentTable);
+            if (currentTableInstance)
+                currentTableInstance->rollbackTransaction();
+            else
+                cout << "No table instance available for rollback." << endl;
         }
-        else if(query == COMMIT) {
-            if(currentTable.empty()){
+        else if (query == COMMIT) {
+            if (currentTable.empty()){
                 cout << "No table selected for transaction commit." << endl;
                 return;
             }
-            commitTransaction(currentTable);
+            if (currentTableInstance)
+                currentTableInstance->commitTransaction();
+            else
+                cout << "No table instance available for commit." << endl;
         }
         else {
             cout << "Unknown command: " << query << endl;
@@ -267,81 +392,6 @@ parser::parser(list<string> &queryList) {
 }
 
 parser::~parser() { }
-
-
-class table
-{
-public:
-    table();
-    ~table();
-};
-table::table() {}
-table::~table() {}
-
-class database
-{
-public:
-    database();
-    ~database();
-};
-database::database() {}
-database::~database() {}
-
-
-// Function to check if a file exists
-bool fileExists()
-{
-    ifstream file(FILENAME);
-    return file.good();
-}
-
-// Function to create a CSV file with a header if it doesn't exist
-void createCSVIfNotExists()
-{
-    if (!fileExists())
-    {
-        ofstream file(FILENAME);
-        if (file.is_open())
-        {
-            file << "ID,Name,Age,Department\n"; // Adding header
-            file.close();
-        }
-    }
-}
-
-// Function to display file contents
-void displayCSV()
-{
-    ifstream file(FILENAME);
-    if (!file.is_open())
-    {
-        cout << "Error opening file.\n";
-        return;
-    }
-
-    string line;
-    while (getline(file, line))
-    {
-        cout << line << endl;
-    }
-    file.close();
-}
-
-
-
-
-// Function to delete the entire file
-void deleteFile()
-{
-    if (remove(FILENAME.c_str()) == 0)
-    {
-        cout << "File deleted successfully.\n";
-    }
-    else
-    {
-        cout << "Error deleting file.\n";
-    }
-}
 
 list<string> input() {
     string inputStr;
@@ -353,35 +403,27 @@ list<string> input() {
     bool inside_parentheses = false;
     string parentheses_content = "";
     
-    // Process each character in the input line.
     for (char ch : inputStr) {
         if (inside_parentheses) {
-            // When inside parentheses, append everything until we see a closing parenthesis.
+            // When inside parentheses, do NOT skip quotes; simply append them.
             if (!s_quotation && !d_quotation && ch == ')') {
-                // End of parentheses; finish token.
                 inside_parentheses = false;
                 query.push_back(parentheses_content);
                 parentheses_content = "";
             } else {
-                // Append character regardless (spaces, commas, etc.)
                 parentheses_content.push_back(ch);
             }
         } else {
-            // Not inside parentheses.
             switch(ch) {
                 case '(':
-                    // Start a new parentheses token.
                     inside_parentheses = true;
-                    // If there's a pending token in 'word', push it first.
                     if (!word.empty()) {
                         query.push_back(word);
                         word.clear();
                     }
-                    // Start accumulating inner content.
                     parentheses_content = "";
                     break;
                 case ' ':
-                    // Use space as delimiter only when not inside parentheses or quotes.
                     if (!s_quotation && !d_quotation) {
                         if (!word.empty()) {
                             query.push_back(word);
@@ -392,7 +434,6 @@ list<string> input() {
                     }
                     break;
                 case ',':
-                    // Outside parentheses, discard comma as a separate token.
                     if (!s_quotation && !d_quotation) {
                         if (!word.empty()) {
                             query.push_back(word);
@@ -402,41 +443,22 @@ list<string> input() {
                         word.push_back(ch);
                     }
                     break;
-                case '!':
-                case '<':
-                case '>':
-                    // Punctuation tokens outside quotes.
-                    if (!s_quotation && !d_quotation) {
-                        if (!word.empty()) {
-                            query.push_back(word);
-                            word.clear();
-                        }
-                        query.push_back(string(1, ch));
-                    } else {
-                        word.push_back(ch);
-                    }
-                    break;
-                case '\'':
-                    if (!d_quotation) {
-                        s_quotation = !s_quotation;
-                    }
+                case '"':
+                    // Toggle double quote flag and preserve the quote.
+                    d_quotation = !d_quotation;
                     word.push_back(ch);
                     break;
-                case '\"':
-                    if (!s_quotation) {
-                        d_quotation = !d_quotation;
-                    }
+                case '\'':
+                    s_quotation = !s_quotation;
                     word.push_back(ch);
                     break;
                 default:
-                    if (isalnum(ch)) {
-                        // Outside quotes, convert alphabetic characters to uppercase.
-                        if (!s_quotation && !d_quotation && isalpha(ch))
-                            word.push_back(toupper(ch));
+                    if (!s_quotation && !d_quotation) {
+                        if (isalpha(ch))
+                            word.push_back(tolower(ch));
                         else
                             word.push_back(ch);
                     } else {
-                        // For other punctuation outside parentheses, simply append.
                         word.push_back(ch);
                     }
                     break;
@@ -444,21 +466,15 @@ list<string> input() {
         }
     }
     
-    // If there's any pending token outside parentheses, push it.
-    if (!word.empty()) {
+    if (!word.empty())
         query.push_back(word);
-        word.clear();
-    }
-    
-    // If we ended while still inside parentheses, it's a mismatched error.
-    if (inside_parentheses) {
+    if (inside_parentheses)
         throw invalid_argument("Mismatched parentheses in input.");
-    }
     
-    // For debugging: print tokens
-    // for (const string &token : query) {
-    //     cout << token << endl;
-    // }
+// For debugging: print tokens
+    for (const string &token : query) {
+        cout << token << endl;
+    }
     
     return query;
 }

@@ -6,6 +6,12 @@
 using namespace std;
 namespace fs = std::filesystem;
 
+bool exitProgram = false;
+string fs_path = "DBMS";    // or whatever the root directory should be
+string currentDatabase = "";
+string currentTable = "";
+
+
 int main(int argc, char const *argv[])
 {
     // Welcome message
