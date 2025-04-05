@@ -1,6 +1,4 @@
-// initiateData.cpp
 #include "library.cpp"
-#include "keywords.cpp"
 
 // Global variables used for session context.
 extern string fs_path;         // Root DBMS folder path
@@ -11,8 +9,19 @@ extern string currentTable;    // Currently selected table name (empty if none)
 // Database & Table Creation / Erasure Functions
 //--------------------------------------------------------------------------------
 
+/* DONE */
 // Creates a new database directory if it does not exist.
+bool isValidDatabaseName(const string& name) {
+    // Only allow alphabets (upper and lower case), numbers, and underscores.
+    regex validPattern("^[A-Za-z0-9_]+$");
+    return regex_match(name, validPattern);
+}
+
 bool init_database(string name) {
+    if (!isValidDatabaseName(name)) {
+        cerr << "Invalid database name! Only alphabets, numbers, and underscores are allowed." << endl;
+        return false;
+    }
     if (!fs::exists(name)) {
         if (fs::create_directory(name)) {
             cout << "Database created: " << name << endl;
@@ -22,190 +31,40 @@ bool init_database(string name) {
             return false;
         }
     } else {
-        cout << "Database already exists! Use ENTER " << name << " to access." << endl;
+        cout << "Database already exists! Use ENTER " << name << " to access it." << endl;
         return false;
     }
     return true;
 }
 
-// Creates a new table by writing a CSV file with header definitions.
-// The header is written in the format: 
-//   id(INT)(PRIMARY_KEY),name(VARCHAR),age(INT)
-// This format is used internally for data type validation and metadata tracking.
-// When the table is later displayed via the SHOW command, only the column names
-// (extracted from the header) are shown.
 // Helper function: trim whitespace from both ends of a string.
+// This is actually not required can be removed.
 string trimStr(const string &s) {
-    size_t start = s.find_first_not_of(" \t");
+    size_t start = s.find_first_not_of(" \t"); // Finds the first character that is not a space or tab
     if(start == string::npos) return "";
-    size_t end = s.find_last_not_of(" \t");
-    return s.substr(start, end - start + 1);
+    size_t end = s.find_last_not_of(" \t"); // Finds the last such character that is not a space or tab
+    return s.substr(start, end - start + 1); // ✅ The result includes the character at start_index,❌ But does NOT use an end_index.
+}
+bool isValidDataType(const string &dataType) {
+    // Use dummy values for type checking
+    if (dataType == "INT") return true;
+    if (dataType == "BIINT") return true;
+    if (dataType == "DOUBLE") return true;
+    if (dataType == "BIDOUBLE") return true;
+    if (dataType == "CHAR") return true;
+    if (dataType == "VARCHAR" || dataType == "STRING") return true;
+    if (dataType == "DATE") return true;
+    if (dataType == "BOOL") return true;
+    return false; // Unknown type
 }
 
-// Helper function: Tokenize a column definition by spaces, preserving quoted substrings.
-vector<string> tokenizeColumnDef(const string &colDef) {
-    vector<string> tokens;
-    bool inQuotes = false;
-    string current;
-    for (char ch : colDef) {
-        if (ch == '"') {
-            inQuotes = !inQuotes;
-            // Append the quote to preserve it.
-            current.push_back(ch);
-            continue;
-        }
-        if (!inQuotes && isspace(ch)) {
-            if (!current.empty()) {
-                tokens.push_back(trimStr(current));
-                current.clear();
-            }
-        } else {
-            current.push_back(ch);
-        }
-    }
-    if (!current.empty())
-        tokens.push_back(trimStr(current));
-    return tokens;
+bool isValidConstraint(const string &constraint) {
+    string upperCons = constraint;
+    transform(upperCons.begin(), upperCons.end(), upperCons.begin(), ::toupper);
+    if(upperCons == "PRIMARY_KEY") return true;
+    if(upperCons == "NOT_NULL") return true;
+    return false;
 }
-
-// New helper: Parse a single column definition.
-// If the definition contains quoted text, the text within the first pair of quotes is taken as the column name.
-// The remainder of the definition is then tokenized (by spaces) for datatype and constraints.
-vector<string> parseColumnDefinition(const string &colDef) {
-    size_t firstQuote = colDef.find('"');
-    if (firstQuote != string::npos) {
-        size_t secondQuote = colDef.find('"', firstQuote + 1);
-        if (secondQuote != string::npos) {
-            // Extract column name (including quotes).
-            string colName = colDef.substr(firstQuote, secondQuote - firstQuote + 1);
-            // Remove the quotes for the final column name.
-            colName = colName.substr(1, colName.size() - 2);
-            // Get the remainder of the string after the second quote.
-            string remainder = colDef.substr(secondQuote + 1);
-            vector<string> tokens;
-            tokens.push_back(trimStr(colName));  // Use the quoted text as column name.
-            // Tokenize the remainder by spaces.
-            istringstream iss(remainder);
-            string token;
-            while (iss >> token) {
-                tokens.push_back(token);
-            }
-            return tokens;
-        }
-    }
-    // If no quotes are found, use the normal tokenization.
-    return tokenizeColumnDef(colDef);
-}
-
-// Creates a new table by writing a CSV file with custom header definitions.
-// The header is constructed by splitting the user-provided header string by commas,
-// then processing each column definition using parseColumnDefinition().
-// For each column, the header is written as: 
-//    columnName(DATATYPE)(CONSTRAINT1)(CONSTRAINT2)...
-// Every column must have at least a column name and a datatype.
-void make_table(list<string> &queryList) {
-    if (queryList.empty()) {
-        cout << "MAKE: Table name expected." << endl;
-        return;
-    }
-    // The first token is the table name.
-    string tableName = queryList.front();
-    queryList.pop_front();
-
-    // Gather the header string (if provided).
-    string headersToken = "";
-    if (!queryList.empty()) {
-        headersToken = queryList.front();
-        queryList.pop_front();
-        // If headersToken starts with '(' and doesn't end with ')', combine tokens until a closing ')' is found.
-        if (!headersToken.empty() && headersToken.front() == '(' && headersToken.back() != ')') {
-            while (!queryList.empty() && queryList.back().back() != ')') {
-                headersToken += " " + queryList.front();
-                queryList.pop_front();
-            }
-            if (!queryList.empty()) {
-                headersToken += " " + queryList.front();
-                queryList.pop_front();
-            }
-        }
-        headersToken = trimStr(headersToken);
-        if (!headersToken.empty() && headersToken.front() == '(' && headersToken.back() == ')') {
-            headersToken = headersToken.substr(1, headersToken.size() - 2);
-        }
-    }
-    
-    // Open a new CSV file for the table.
-    string filename = tableName + ".csv";
-    ifstream file(filename);
-    if (file.good()) {
-        cout << "Table already exists: " << fs::absolute(filename).string() << endl;
-        return;
-    }
-    file.close();
-
-    ofstream newTable(filename);
-    if (!newTable.is_open()) {
-        cerr << "Failed to create table file!" << endl;
-        return;
-    }
-    
-    string finalHeader;
-    if (!headersToken.empty()) {
-        // Split the header string by commas.
-        vector<string> colDefs;
-        istringstream headerStream(headersToken);
-        string colDef;
-        while(getline(headerStream, colDef, ',')) {
-            colDef = trimStr(colDef);
-            if (!colDef.empty())
-                colDefs.push_back(colDef);
-        }
-        // Process each column definition.
-        vector<string> formattedCols;
-        for (const auto &def : colDefs) {
-            vector<string> tokens = parseColumnDefinition(def);
-            if (tokens.size() < 2) {
-                cout << "Invalid column definition (must have column name and datatype): " << def << endl;
-                return;
-            }
-            // First token: column name.
-            string colName = tokens[0];
-            // Second token: datatype.
-            string dataType = tokens[1];
-            transform(dataType.begin(), dataType.end(), dataType.begin(), ::toupper);
-            // Any additional tokens are constraints.
-            string constraints = "";
-            for (size_t i = 2; i < tokens.size(); i++) {
-                string cons = tokens[i];
-                transform(cons.begin(), cons.end(), cons.begin(), ::toupper);
-                constraints += "(" + cons + ")";
-            }
-            // Build formatted column: columnName(DATATYPE)(constraint...)
-            string formatted = colName + "(" + dataType + ")" + constraints;
-            formattedCols.push_back(formatted);
-        }
-        // Join formatted columns with commas.
-        for (size_t i = 0; i < formattedCols.size(); i++) {
-            finalHeader += formattedCols[i];
-            if (i != formattedCols.size() - 1)
-                finalHeader += ",";
-        }
-    } else {
-        // If no header provided, use a fixed default header.
-        finalHeader = "ID(INT)(PRIMARY_KEY),NAME(VARCHAR),AGE(INT),DEPARTMENT(VARCHAR)";
-    }
-    
-    // Write the header to the CSV file.
-    newTable << finalHeader << "\n";
-    cout << "Table created with headers: " << finalHeader << endl;
-    newTable.close();
-    
-    // Set currentTable so that subsequent operations know a table is active.
-    currentTable = tableName;
-    cout << "Table file created at: " << fs::absolute(filename).string() << endl;
-}
-
-
 // Erases a database directory (and all its contents) if it exists.
 bool eraseDatabase(const string &dbName) {
     if (fs::exists(dbName) && fs::is_directory(dbName)) {
@@ -225,7 +84,7 @@ bool eraseTable(const string &tableName) {
     if (file.good()) {
         file.close();
         if (remove(filename.c_str()) == 0) {
-            cout << "Table erased: " << fs::absolute(filename).string() << endl;
+            cout<<"Table is erased permanently."<<endl;
             return true;
         } else {
             cout << "Error erasing table: " << tableName << endl;
@@ -235,6 +94,195 @@ bool eraseTable(const string &tableName) {
         cout << "Table not found: " << tableName << endl;
         return false;
     }
+}
+bool eraseTable(const string &tableName, int) { // function overloading 
+    string filename = tableName + ".csv";
+    ifstream file(filename);
+    if (file.good()) {
+        file.close();
+        if (remove(filename.c_str()) == 0) {
+            return true;
+        } else {
+            return false;
+        }
+    } else {
+        return false;
+    }
+}
+
+// Helper function: Tokenize a column definition by spaces, preserving quoted substrings.
+vector<string> tokenizeColumnDef(const string &colDef) {
+    vector<string> tokens;
+    bool inQuotes = false;
+    string current;
+    for (char ch : colDef) {
+        if (ch == '"') {
+            inQuotes = !inQuotes;
+            continue;
+        }
+        if (!inQuotes && isspace(ch)) {
+            if (!current.empty()) {
+                tokens.push_back(trimStr(current));
+                current.clear();
+            }
+        } else {
+            current.push_back(ch);
+        }
+    }
+    if (!current.empty())
+        tokens.push_back(trimStr(current));
+    return tokens;
+}
+
+
+/////////// THIS FUNCTION IS NOT NEEDED tokenizeColumnDef(colDef); above function does all the necessary things)
+// New helper: Parse a single column definition.
+// If the definition contains quoted text, the text within the first pair of quotes is taken as the column name.
+// The remainder of the definition is then tokenized (by spaces) for datatype and constraints.
+// vector<string> parseColumnDefinition(const string &colDef) {
+//     size_t firstQuote = colDef.find('"');
+//     if (firstQuote != string::npos) {
+//         size_t secondQuote = colDef.find('"', firstQuote + 1);
+//         if (secondQuote != string::npos) {
+//             // Extract column name (including quotes).
+//             string colName = colDef.substr(firstQuote, secondQuote - firstQuote + 1);
+//             // Remove the quotes for the final column name.
+//             colName = colName.substr(1, colName.size() - 2);
+//             // Get the remainder of the string after the second quote.
+//             string remainder = colDef.substr(secondQuote + 1);
+//             vector<string> tokens;
+//             tokens.push_back(trimStr(colName));  // Use the quoted text as column name.
+//             // Tokenize the remainder by spaces.
+//             istringstream iss(remainder);
+//             string token;
+//             while (iss >> token) {
+//                 tokens.push_back(token);
+//             }
+//             return tokens;
+//         }
+        
+//     }
+//     // If no quotes are found, use the normal tokenization.
+//     return tokenizeColumnDef(colDef);
+// }
+
+// Creates a new table by writing a CSV file with custom header definitions.
+// The header is constructed by splitting the user-provided header string by commas,
+// then processing each column definition using parseColumnDefinition().
+// For each column, the header is written as: 
+//    columnName(DATATYPE)(CONSTRAINT1)(CONSTRAINT2)...
+// Every column must have at least a column name and a datatype.
+void make_table(list<string> &queryList) {
+    string headersToken = "";
+    // if (!queryList.empty()) {
+        headersToken = queryList.front();
+        queryList.pop_front();
+        // If headersToken starts with '(' and doesn't end with ')', combine tokens until a closing ')' is found.
+        // if (!headersToken.empty() && headersToken.front() == '(' && headersToken.back() != ')') {
+        //     while (!queryList.empty() && queryList.back().back() != ')') {
+        //         headersToken += " " + queryList.front();
+        //         queryList.pop_front();
+        //     }
+        //     if (!queryList.empty()) {
+        //         headersToken += " " + queryList.front();
+        //         queryList.pop_front();
+        //     }
+        // }
+        headersToken = trimStr(headersToken);
+        // if (!headersToken.empty() && headersToken.front() == '(' && headersToken.back() == ')') {
+        //     headersToken = headersToken.substr(1, headersToken.size() - 2);
+        // }
+    // }
+    
+    // Open a new CSV file for the table using the table name from currentTable.
+    string filename = currentTable + ".csv";
+    ifstream file(filename); // make this file absolute if needed //////////////////////
+    if (file.good()) {
+        cout << "Table already exists with name "<< filename << endl;
+        return;
+    }
+    file.close();
+
+    ofstream newTable(filename);
+    if (!newTable.is_open()) {
+        cerr << "Failed to create table file!" << endl;
+        return;
+    }
+    
+    string finalHeader;
+    if (!headersToken.empty()) {
+        // Split the header string by commas.
+        vector<string> colDefs;
+        istringstream headerStream(headersToken); /*istringstream is a class from the <sstream> header. 
+            It allows you to treat a string like a stream, so you can extract values from it just like you’d read from cin or a file.
+        */ 
+
+        string colDef;
+        while (getline(headerStream, colDef, ',')) {
+            colDef = trimStr(colDef); // Reads from headerStream, one comma-separated value at a time. like this 
+            // " id INT PRIMARY_KEY"
+            // " name VARCHAR"
+            // " age INT"
+            // " department VARCHAR"
+            if (!colDef.empty())
+                colDefs.push_back(colDef);
+        }
+        // Process each column definition.
+        vector<string> formattedCols;
+        for (const auto &def : colDefs) {
+            vector<string> tokens = tokenizeColumnDef(def);
+            if (tokens.size() < 2) {
+                cout << "Invalid column definition (must have column name and datatype): " << def << endl;
+                return;
+            }
+            // First token: column name.
+            string colName = tokens[0];
+            // Second token: datatype.
+            string dataType = tokens[1];
+            transform(dataType.begin(), dataType.end(), dataType.begin(), ::toupper); // transform inbuilt in algorithm, toupper built in cctype
+            // Validate datatype
+            if (!isValidDataType(dataType)) {
+                cout << "Invalid data type for column '" << colName << "': " << dataType << endl;
+                string path = fs::current_path().string();
+                cout<<path + "/" + currentTable<<endl;
+                eraseTable(path + "/" + currentTable,0); // 0 overrides the function
+                currentTable = "";
+                return;
+            }
+
+            // Validate and build constraints
+            string constraints = "";
+            for (size_t i = 2; i < tokens.size(); i++) {
+                string cons = tokens[i];
+                transform(cons.begin(), cons.end(), cons.begin(), ::toupper);
+                if (!isValidConstraint(cons)) {
+                    cout << "Invalid constraint '" << cons << "' for column '" << colName << "'." << endl;
+                    string path = fs::current_path().string();
+                    eraseTable(path + "/" + currentTable,0);
+                    currentTable = "";
+                    return;
+                }
+                constraints += "(" + cons + ")";
+            }
+            // Build formatted column: columnName(DATATYPE)(constraint...)
+            string formatted = colName + "(" + dataType + ")" + constraints;
+            formattedCols.push_back(formatted);
+        }
+        // Join formatted columns with commas.
+        for (size_t i = 0; i < formattedCols.size(); i++) {
+            finalHeader += formattedCols[i];
+            if (i != formattedCols.size() - 1)
+                finalHeader += ",";
+        }
+    }
+    
+    // Write the header to the CSV file.
+    newTable << finalHeader << "\n";
+    cout << "Table created with headers: " << finalHeader << endl;
+    newTable.close();
+    
+    // The table name remains stored in currentTable.
+    cout << "Table is Sucessfully Created."<< endl;
 }
 
 //--------------------------------------------------------------------------------
@@ -286,9 +334,10 @@ void listTables() {
     }
 }
 
+/*     Done    */
 // Splits a list of tokens into separate queries based on the pipe ("|") symbol.
 list<list<string>> splitQueries(const list<string>& tokens) {
-    list<list<string>> queries;
+    list<list<string>> queries; // creates a 2d list.
     list<string> current;
     for (const auto &tok : tokens) {
         if (tok == "|") {

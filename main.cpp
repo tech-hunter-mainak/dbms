@@ -1,7 +1,4 @@
-// main.cpp
-#include "library.cpp"
 #include "parser.cpp"
-#include <iostream>
 
 using namespace std;
 namespace fs = std::filesystem;
@@ -11,50 +8,41 @@ string fs_path = "DBMS";    // or whatever the root directory should be
 string currentDatabase = "";
 string currentTable = "";
 
-
 int main(int argc, char const *argv[])
 {
-    // Welcome message
     cout << "Welcome to the robust DBMS! Type your commands below." << endl;
-
-    // Initialize DBMS parent directory "DBMS"
     string dbmsFolder = "DBMS";
     if (!fs::exists(dbmsFolder))
     {
-        if (fs::create_directory(dbmsFolder))
+        if (!fs::create_directory(dbmsFolder))
         {
-            cout << "DBMS folder created at: \"" << fs::absolute(dbmsFolder).string() << "\"" << endl;
-        }
-        else
-        {
-            cerr << "Failed to create DBMS folder!" << endl;
+            cerr << "Failed to configure Database, go through docs" << endl;
             return 1;
         }
     }
+    // This changes the working directory to the root
     fs::current_path(dbmsFolder);
+    // This updates the global variable to access in different parsing operations.
     fs_path = fs::current_path().string();
-    // fs_dbms_path = "../" + fs_path;
-
     while (!exitProgram)
     {
         string prompt;
+        // You can adjust these variables to desired prompts
         if (currentDatabase.empty())
-            prompt = "dbms> ";
+            prompt = "dbms >> ";
         else if (!currentDatabase.empty() && currentTable.empty())
-            prompt = currentDatabase + "> ";
+            prompt = currentDatabase + " >> ";
         else if (!currentTable.empty())
-            prompt = currentTable + "> ";
-        
+            prompt = currentTable + " >> ";
         cout << prompt;
         list<string> tokens = input();
         if (!tokens.empty())
         {
             // Split tokens by pipe ("|") symbol.
             list<list<string>> queries = splitQueries(tokens);
-            // Process each query group.
             for (auto &q : queries) {
-                // You can do additional trimming or check here if needed.
-                parser p(q);
+                Parser parser(q);
+                parser.parse();
             }
         }
     }

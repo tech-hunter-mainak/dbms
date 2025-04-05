@@ -1,8 +1,5 @@
-// Table.h
-
 #include "row.cpp"
 #include "library.cpp"  // Or your other necessary headers
-#include "keywords.cpp"
 
 
 struct Condition {
@@ -144,10 +141,9 @@ private:
     unordered_map<string, Row> dataMap;
     vector<string> rowOrder;  // Keeps row IDs in CSV insertion order.
     unordered_map<string, pair<string, string>> columnMeta;
+    int primaryKeyIndex; // Index of the primary key column.
     int columnWidth;
-    
-    // Transaction flag for this table.
-    bool inTransaction;
+
 
     void writeToFile() {
         ofstream file(filename);
@@ -219,8 +215,9 @@ private:
 
 public:
     // Constructor: given a table name, it sets filename and retrieves data.
+    /*           DONE            */
     Table(const string &tName) 
-      : tableName(tName), filename(tName + ".csv"), columnWidth(15), inTransaction(false)
+      : tableName(tName), filename(tName + ".csv"), columnWidth(15)
     {
         retrieveData();
     }
@@ -235,7 +232,6 @@ public:
     // For checking if a row or column exists.
     bool hasRow(const string &id);
     bool hasColumn(const string &colName);
-
     // For deleting an entire column.
     void deleteColumn(const string &colName);
 
@@ -250,6 +246,7 @@ public:
     void updateValueByCondition(const string &oldValue, const string &newValue,
         const vector<vector<Condition>> &conditionGroups);
 
+    /* DONE */
     // Retrieve data from CSV file into in-memory structures.
     void retrieveData() {
         dataMap.clear();
@@ -259,37 +256,48 @@ public:
         
         ifstream file(filename);
         if (!file.is_open()) {
-            cout << "Error opening file " << filename << "!\n";
+            cout << "Error occured while opening " << filename << " check tablename."<< "!\n";
             return;
         }
         string line;
         bool isHeader = true;
         while (getline(file, line)) {
-            stringstream ss(line);
+            stringstream ss(line); // stringstream is part of the C++ Standard Library in <sstream>. It works like a stream (just like cin or cout),
+            // but instead of reading/writing to the console or files, it reads/writes to a string in memory.
             vector<string> rowValues;
             string value;
-            while (getline(ss, value, ',')) {
+            while (getline(ss, value, ',')) { // here , is delimitters
                 rowValues.push_back(value);
             }
             if (isHeader) {
                 // Parse header row to fill headers and columnMeta.
                 for (auto &col : rowValues) {
-                    size_t pos1 = col.find('(');
-                    size_t pos2 = col.find(')', pos1);
-                    if (pos1 != string::npos && pos2 != string::npos) {
-                        string colName = trim(col.substr(0, pos1));
-                        string dataType = trim(col.substr(pos1 + 1, pos2 - pos1 - 1));
-                        string constraint = "";
-                        size_t pos3 = col.find('(', pos2);
-                        size_t pos4 = col.find(')', pos3);
-                        if (pos3 != string::npos && pos4 != string::npos) {
-                            constraint = trim(col.substr(pos3 + 1, pos4 - pos3 - 1));
+                    size_t firstParen = col.find('(');
+                    size_t firstClose = col.find(')', firstParen);
+                    if (firstParen != string::npos && firstClose != string::npos) {
+                        // Extract column name and data type
+                        string colName = trim(col.substr(0, firstParen));
+                        string dataType = trim(col.substr(firstParen + 1, firstClose - firstParen - 1));
+                        // Collect multiple constraints
+                        vector<string> constraints;
+                        size_t currentPos = firstClose + 1;
+                        while (true) {
+                            size_t open = col.find('(', currentPos);
+                            size_t close = col.find(')', open);
+                            if (open == string::npos || close == string::npos)
+                                break;
+                            string constraint = trim(col.substr(open + 1, close - open - 1));
+                            constraints.push_back(constraint);
+                            currentPos = close + 1;
+                        }
+                        string allConstraints;
+                        for (size_t i = 0; i < constraints.size(); ++i) {
+                            allConstraints += constraints[i];
+                            if (i != constraints.size() - 1)
+                                allConstraints += ","; // Join constraints with space or comma as needed
                         }
                         headers.push_back(colName);
-                        columnMeta[colName] = {dataType, constraint};
-                    } else {
-                        headers.push_back(col);
-                        columnMeta[col] = {"", ""};
+                        columnMeta[colName] = {dataType, allConstraints};
                     }
                 }
                 isHeader = false;
@@ -302,7 +310,6 @@ public:
             }
         }
         file.close();
-        cout << "Data loaded from " << fs::absolute(filename).string() << ".\n";
     }
     
     // Print all table data in a formatted layout.
@@ -380,7 +387,6 @@ public:
     void cleanTable() {
         dataMap.clear();
         rowOrder.clear();
-        cout << "Table cleaned in memory: " << tableName << endl;
     }
     
     // Update a value in a given column for rows that match a condition.
@@ -707,26 +713,27 @@ bool compareValues(const string &actual, const string &op, const string &expecte
         return isNumeric ? (a >= b) : (actual >= expected);
     else if (op == "<=")
         return isNumeric ? (a <= b) : (actual <= expected);
-    else if (op == "/" || op == "!=")
+    else if (op == "!=")
         return actual != expected;
     return false;
 }
 vector<vector<Condition>> parseAdvancedConditions(const vector<string>& tokens) {
+    // so logically speaking for this cond1 AND cond2 OR cond3 AND cond4
+    // this is how it gets stored in groups: 
+    /*[
+        [cond1, cond2],
+        [cond3, cond4]
+      ] 
+    */
     vector<vector<Condition>> groups;
     vector<Condition> currentGroup;
-    auto trimQuotes = [](const string &s) -> string {
-        string trimmed = s;
-        // Remove leading/trailing whitespace.
-        size_t start = trimmed.find_first_not_of(" \t");
-        size_t end = trimmed.find_last_not_of(" \t");
-        if (start != string::npos && end != string::npos)
-            trimmed = trimmed.substr(start, end - start + 1);
-        // Remove surrounding quotes if present.
-        if (!trimmed.empty() && trimmed.front() == '"' && trimmed.back() == '"')
+    auto trimQuotes = [](const string &s) -> string { // this is a lambda function kind of.
+        string trimmed = trimStr(s);
+        if (!trimmed.empty() && ((trimmed.front() == '"' && trimmed.back() == '"') || (trimmed.front() == '\'' && trimmed.back() == '\'')))
             trimmed = trimmed.substr(1, trimmed.size() - 2);
         return trimmed;
     };
-
+    
     int i = 0;
     while (i < tokens.size()) {
         if (i + 2 < tokens.size()) {
@@ -746,7 +753,7 @@ vector<vector<Condition>> parseAdvancedConditions(const vector<string>& tokens) 
                 i++;
             }
         } else {
-            // Not enough tokens for a complete condition.
+            cerr << "ERROR: Something wrong in conditions"<<endl; 
             break;
         }
     }
