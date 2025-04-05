@@ -4,6 +4,8 @@
 extern string fs_path;         // Root DBMS folder path
 extern string currentDatabase; // Currently selected database name (empty if none)
 extern string currentTable;    // Currently selected table name (empty if none)
+extern bool exitProgram;
+
 
 //--------------------------------------------------------------------------------
 // Database & Table Creation / Erasure Functions
@@ -300,14 +302,20 @@ void make_table(list<string> &queryList) {
 void listDatabases() {
     fs::path rootPath = fs_path;  // Root DBMS folder
     if (!fs::exists(rootPath)) {
-        cout << "Root DBMS directory not found." << endl;
-        return;
+        cerr << "Sys ERR: Installation went wrong unistall and install again." << endl;
+        
     }
     for (const auto &entry : fs::directory_iterator(rootPath)) {
         if (entry.is_directory()) {
             string dbName = entry.path().filename().string();
+            if (!dbName.empty() && dbName[0] == '.')// ✅ Skips hidden directories (starting with '.')
+                continue;
             int tableCount = 0;
-            for (const auto &f : fs::directory_iterator(entry.path())) {
+            for (const auto &f : fs::directory_iterator(entry.path())) { // fs::directory_iterator loops through each file in the db-name
+                string fileName = f.path().filename().string();
+                // ✅ Skips hidden files
+                if (!fileName.empty() && fileName[0] == '.')
+                    continue;
                 // Count CSV files (tables), ignoring the metadata file.
                 if (f.is_regular_file() && f.path().extension() == ".csv" &&
                     f.path().stem().string() != "table_metadata")
@@ -364,27 +372,33 @@ list<list<string>> splitQueries(const list<string>& tokens) {
 
 // Moves up one level in the directory hierarchy.
 // If already at the root DBMS folder, terminates the program.
+void clearTableInstance(){
+    currentTable = "";
+    // delete currentTableInstance;
+    // currentTableInstance = nullptr;
+    return;
+}
 void move_up(){
     fs::path currentPath = fs::current_path();
-    // If a table is active, clear table context.
     if(currentTable != ""){
-        currentTable = "";
-        cout << "Exited table context." << endl;
+        cout<< currentPath<< endl;
+        clearTableInstance();
+        cout << "Exited table " << endl;
         return;
     }
     if(currentPath.string() == fs_path) {
         cout << "Exiting program." << endl;
-        exit(0);  // Alternatively, set a global flag.
+        cout<< currentPath<< endl;
+        exitProgram = true;
     } else {
         fs::current_path("../");
         currentPath = fs::current_path();
+        cout<< currentPath<< endl;
         if(currentPath.string() == fs_path){
             currentDatabase = "";
-            currentTable = "";
-            cout << "Now at top-level DBMS directory." << endl;
-        } else {
-            currentTable = "";
-            cout << "Moved up. Current directory: " << currentPath.string() << endl;
+            cout << "Now at top-level." << endl;
         }
     }
 }
+
+

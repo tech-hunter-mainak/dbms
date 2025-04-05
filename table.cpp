@@ -161,6 +161,7 @@ private:
             cout << "Error opening file for commit." << endl;
             return;
         }
+        
         // Write header row.
         for (size_t i = 0; i < headers.size(); i++) {
             string colName = headers[i];
@@ -173,15 +174,29 @@ private:
                 file << ",";
         }
         file << "\n";
+        
         // Write each row in the order defined by rowOrder.
+        // Reconstruct the row based on primaryKeyIndex.
         for (const auto &id : rowOrder)
         {
             auto it = dataMap.find(id);
             if (it != dataMap.end()) {
-                file << it->first;  // Write the ID.
-                for (const auto &val : it->second.values)
-                {
-                    file << "," << val;
+                // Reassemble the row in the order specified by headers.
+                // For each column index, if it's the primary key column, use it->first (id);
+                // otherwise, use the corresponding value from it->second.values.
+                for (size_t i = 0; i < headers.size(); i++) {
+                    string cell;
+                    if ((int)i == primaryKeyIndex) {
+                        cell = it->first; // primary key value.
+                    } else if ((int)i < primaryKeyIndex) {
+                        cell = (i < it->second.values.size()) ? it->second.values[i] : "";
+                    } else { // i > primaryKeyIndex: adjust index by subtracting one.
+                        int valIndex = i - 1;
+                        cell = (valIndex < it->second.values.size()) ? it->second.values[valIndex] : "";
+                    }
+                    file << cell;
+                    if (i < headers.size() - 1)
+                        file << ",";
                 }
                 file << "\n";
             }
@@ -502,60 +517,111 @@ public:
             return;
         }
         
+        // Step 1: Compute the maximum width for each column.
+        // Number of columns is determined by the headers vector.
+        size_t nCols = headers.size();
+        vector<size_t> colWidths(nCols, 0);
+        
+        // Update width for each header.
+        for (size_t i = 0; i < nCols; i++) {
+            colWidths[i] = headers[i].length();
+        }
+        
+        // Function to reconstruct a row's cells into a vector of strings.
+        auto getRowCells = [&](const string &pk) -> vector<string> {
+            vector<string> cells(nCols, "");
+            auto it = dataMap.find(pk);
+            if (it == dataMap.end())
+                return cells;
+            // For each column index:
+            for (size_t i = 0; i < nCols; i++) {
+                string cell;
+                if ((int)i == primaryKeyIndex) {
+                    cell = it->first;  // primary key from row id.
+                } else if ((int)i < primaryKeyIndex) {
+                    cell = (i < it->second.values.size()) ? it->second.values[i] : "";
+                } else {
+                    int valIndex = i - 1; // shift index because primary key is not stored in values.
+                    cell = (valIndex < it->second.values.size()) ? it->second.values[valIndex] : "";
+                }
+                cells[i] = cell;
+            }
+            return cells;
+        };
+        
+        // Iterate through each row to update the column widths.
+        for (const auto &pk : rowOrder) {
+            vector<string> cells = getRowCells(pk);
+            for (size_t i = 0; i < nCols; i++) {
+                colWidths[i] = max(colWidths[i], cells[i].length());
+            }
+        }
+        // Step 2: Helper lambdas to print header, divider, and row using computed widths.
+        auto center = [&](const string &s, size_t width) -> string {
+            if (s.length() >= width)
+                return s;
+            size_t leftPadding = (width - s.length()) / 2;
+            size_t rightPadding = width - s.length() - leftPadding;
+            return string(leftPadding, ' ') + s + string(rightPadding, ' ');
+        };
         auto printFullHeader = [&]() {
-            for (const auto &hdr : headers)
-                cout << setw(columnWidth) << left << hdr;
-            cout << "\n" << string(headers.size() * columnWidth, '-') << "\n";
+            // Print header row with centered text.
+            for (size_t i = 0; i < nCols; i++) {
+                cout << center(headers[i], colWidths[i]);
+                if (i != nCols - 1)
+                    cout << " | ";
+            }
+            cout << "\n";
+            // Print divider.
+            for (size_t i = 0; i < nCols; i++) {
+                cout << string(colWidths[i], '-');
+                if (i != nCols - 1)
+                    cout << "-+-";
+            }
+            cout << "\n";
+        };        
+        
+        auto printRow = [&](const string &pk) {
+            vector<string> cells = getRowCells(pk);
+            for (size_t i = 0; i < nCols; i++) {
+                cout << setw(colWidths[i]) << left << cells[i];
+                if (i != nCols - 1)
+                    cout << " | ";
+            }
+            cout << "\n";
         };
         
         auto printColumnHeader = [&](int colIndex) {
-            cout << setw(columnWidth) << left << headers[colIndex] << "\n";
-            cout << string(columnWidth, '-') << "\n";
+            cout << setw(colWidths[colIndex]) << left << headers[colIndex] << "\n";
+            cout << string(colWidths[colIndex], '-') << "\n";
         };
         
+        // Step 3: Handle the SHOW command according to tokens.
         if (tokens[0] == "*") {
-            if (tokens.size() > 1 && tokens[1] == "where") {
+            if (tokens.size() > 1 && (tokens[1] == "where" || tokens[1] == "WHERE")) {
                 vector<string> condTokens(tokens.begin() + 2, tokens.end());
-                // Use the advanced parser here.
                 vector<vector<Condition>> conditionGroups = parseAdvancedConditions(condTokens);
                 printFullHeader();
-                for (const auto &id : rowOrder) {
-                    auto it = dataMap.find(id);
-                    if (it != dataMap.end() && evaluateAdvancedConditions(it->second, conditionGroups)) {
-                        cout << setw(columnWidth) << left << it->first;
-                        for (const auto &val : it->second.values)
-                            cout << setw(columnWidth) << left << val;
-                        cout << "\n";
-                    }
+                for (const auto &pk : rowOrder) {
+                    auto it = dataMap.find(pk);
+                    if (it != dataMap.end() && evaluateAdvancedConditions(it->second, conditionGroups))
+                        printRow(pk);
                 }
             } else {
                 printFullHeader();
-                for (const auto &id : rowOrder) {
-                    auto it = dataMap.find(id);
-                    if (it != dataMap.end()) {
-                        cout << setw(columnWidth) << left << it->first;
-                        for (const auto &val : it->second.values)
-                            cout << setw(columnWidth) << left << val;
-                        cout << "\n";
-                    }
-                }
+                for (const auto &pk : rowOrder)
+                    printRow(pk);
             }
         }
         else if (tokens[0] == HEAD) {
             int defaultLimit = 5;
             printFullHeader();
             int count = 0;
-            for (const auto &id : rowOrder) {
+            for (const auto &pk : rowOrder) {
                 if (count >= defaultLimit)
                     break;
-                auto it = dataMap.find(id);
-                if (it != dataMap.end()) {
-                    cout << setw(columnWidth) << left << it->first;
-                    for (const auto &val : it->second.values)
-                        cout << setw(columnWidth) << left << val;
-                    cout << "\n";
-                    count++;
-                }
+                printRow(pk);
+                count++;
             }
         }
         else if (tokens[0] == LIMIT) {
@@ -584,92 +650,206 @@ public:
             int total = rowOrder.size();
             if (!fromBottom) {
                 int count = 0;
-                for (const auto &id : rowOrder) {
+                for (const auto &pk : rowOrder) {
                     if (count >= limit)
                         break;
-                    auto it = dataMap.find(id);
-                    if (it != dataMap.end()) {
-                        cout << setw(columnWidth) << left << it->first;
-                        for (const auto &val : it->second.values)
-                            cout << setw(columnWidth) << left << val;
-                        cout << "\n";
-                        count++;
-                    }
+                    printRow(pk);
+                    count++;
                 }
             } else {
                 int start = max(0, total - limit);
-                for (int i = start; i < total; i++) {
-                    auto it = dataMap.find(rowOrder[i]);
-                    if (it != dataMap.end()) {
-                        cout << setw(columnWidth) << left << it->first;
-                        for (const auto &val : it->second.values)
-                            cout << setw(columnWidth) << left << val;
-                        cout << "\n";
-                    }
-                }
+                for (int i = start; i < total; i++)
+                    printRow(rowOrder[i]);
             }
         }
         else {
-            // Assume first token is a column name.
-            string colName = tokens[0];
-            if (!colName.empty() && colName.front() == '"' && colName.back() == '"')
-                colName = colName.substr(1, colName.size() - 2);
-            int colIndex = -1;
-            for (int i = 0; i < headers.size(); i++) {
-                if (headers[i] == colName) {
-                    colIndex = i;
+            // This branch handles "show <col1> <col2> ... [where <conditions>]"
+            // We assume tokens are already tokenized.
+            vector<string> selectedColumns;
+            int whereIndex = -1;
+            // Process tokens: if a token equals "where" (case-insensitive), stop processing column names.
+            for (int i = 0; i < tokens.size(); i++) {
+                if (tokens[i] == "where" || tokens[i] == "WHERE") {
+                    whereIndex = i;
                     break;
                 }
+                // Trim and remove surrounding quotes from each token.
+                string colName = trimStr(tokens[i]);
+                if (!colName.empty() && ((colName.front() == '"' && colName.back() == '"') ||
+                                         (colName.front() == '\'' && colName.back() == '\'')))
+                    colName = colName.substr(1, colName.size() - 2);
+                if (!colName.empty())
+                    selectedColumns.push_back(colName);
             }
-            if (colIndex == -1) {
-                cout << "Column \"" << colName << "\" not found.\n";
-                return;
+            
+            // Determine if there's a WHERE clause.
+            vector<string> condTokens;
+            if (whereIndex != -1) {
+                condTokens.assign(tokens.begin() + whereIndex + 1, tokens.end());
             }
-            if (tokens.size() > 1 && tokens[1] == "where") {
-                vector<string> condTokens(tokens.begin() + 2, tokens.end());
-                vector<vector<Condition>> conditionGroups = parseAdvancedConditions(condTokens);
-                printColumnHeader(colIndex);
-                for (const auto &id : rowOrder) {
-                    auto it = dataMap.find(id);
-                    if (it != dataMap.end() && evaluateAdvancedConditions(it->second, conditionGroups)) {
-                        string cell;
-                        if (colIndex == 0)
-                            cell = it->first;
-                        else {
-                            int idx = colIndex - 1;
-                            if (idx < it->second.values.size())
-                                cell = it->second.values[idx];
-                        }
-                        cout << setw(columnWidth) << left << cell << "\n";
+            
+            // Validate each selected column: find its index in headers.
+            vector<int> colIndices;
+            for (auto &colName : selectedColumns) {
+                int colIndex = -1;
+                for (int i = 0; i < headers.size(); i++) {
+                    if (headers[i] == colName) {
+                        colIndex = i;
+                        break;
                     }
                 }
-            } else {
-                printColumnHeader(colIndex);
-                for (const auto &id : rowOrder) {
-                    auto it = dataMap.find(id);
-                    if (it != dataMap.end()) {
-                        string cell;
-                        if (colIndex == 0)
-                            cell = it->first;
-                        else {
-                            int idx = colIndex - 1;
-                            if (idx < it->second.values.size())
-                                cell = it->second.values[idx];
-                        }
-                        cout << setw(columnWidth) << left << cell << "\n";
-                    }
+                if (colIndex == -1) {
+                    cout << "Column \"" << colName << "\" not found.\n";
+                    return;
+                }
+                colIndices.push_back(colIndex);
+            }
+            
+            // Compute dynamic widths for each selected column.
+            size_t nCols = colIndices.size();
+            vector<size_t> colWidths(nCols, 0);
+            // Initialize widths with header lengths.
+            for (size_t i = 0; i < nCols; i++) {
+                colWidths[i] = headers[colIndices[i]].length();
+            }
+            
+            // Helper lambda: reconstruct a row's cell for a given column index.
+            auto getCellValue = [&](const Row &row, int colIndex) -> string {
+                string cell;
+                if (colIndex == primaryKeyIndex)
+                    cell = row.id;
+                else if (colIndex < primaryKeyIndex)
+                    cell = (colIndex < row.values.size()) ? row.values[colIndex] : "";
+                else {
+                    int valIndex = colIndex - 1;
+                    cell = (valIndex < row.values.size()) ? row.values[valIndex] : "";
+                }
+                return cell;
+            };
+            
+            // Update column widths based on each row's content.
+            for (const auto &pk : rowOrder) {
+                auto it = dataMap.find(pk);
+                if (it == dataMap.end()) continue;
+                for (size_t i = 0; i < nCols; i++) {
+                    string cell = getCellValue(it->second, colIndices[i]);
+                    colWidths[i] = max(colWidths[i], cell.length());
                 }
             }
-        }
+            
+            // Helper lambda to center text.
+            auto center = [&](const string &s, size_t width) -> string {
+                if (s.length() >= width)
+                    return s;
+                size_t leftPadding = (width - s.length()) / 2;
+                size_t rightPadding = width - s.length() - leftPadding;
+                return string(leftPadding, ' ') + s + string(rightPadding, ' ');
+            };
+            
+            // Print header row for selected columns (centered).
+            for (size_t i = 0; i < selectedColumns.size(); i++) {
+                cout << center(selectedColumns[i], colWidths[i]);
+                if (i != selectedColumns.size() - 1)
+                    cout << " | ";
+            }
+            cout << "\n";
+            // Print divider.
+            for (size_t i = 0; i < selectedColumns.size(); i++) {
+                cout << string(colWidths[i], '-');
+                if (i != selectedColumns.size() - 1)
+                    cout << "-+-";
+            }
+            cout << "\n";
+            
+            // Parse conditions if provided.
+            vector<vector<Condition>> conditionGroups;
+            if (!condTokens.empty())
+                conditionGroups = parseAdvancedConditions(condTokens);
+            
+            // Print each row that satisfies the conditions (if any).
+            for (const auto &pk : rowOrder) {
+                auto it = dataMap.find(pk);
+                if (it == dataMap.end())
+                    continue;
+                if (!conditionGroups.empty() && !evaluateAdvancedConditions(it->second, conditionGroups))
+                    continue;
+                for (size_t i = 0; i < nCols; i++) {
+                    string cell = getCellValue(it->second, colIndices[i]);
+                    cout << setw(colWidths[i]) << left << cell;
+                    if (i != nCols - 1)
+                        cout << " | ";
+                }
+                cout << "\n";
+            }
+        }        
+        // THIS BELOW CODE DOES NOT ALLOW show age,id multiple columns     
+        // else {
+        //     // Assume first token is a column name.
+        //     string colName = tokens[0];
+        //     if (!colName.empty() && ((colName.front() == '"' && colName.back() == '"') ||
+        //                              (colName.front() == '\'' && colName.back() == '\'')))
+        //         colName = colName.substr(1, colName.size() - 2);
+        //     int colIndex = -1;
+        //     for (int i = 0; i < headers.size(); i++) {
+        //         if (headers[i] == colName) {
+        //             colIndex = i;
+        //             break;
+        //         }
+        //     }
+        //     if (colIndex == -1) {
+        //         cout << "Column \"" << colName << "\" not found.\n";
+        //         return;
+        //     }
+        //     if (tokens.size() > 1 && (tokens[1] == "where" || tokens[1] == "WHERE")) {
+        //         vector<string> condTokens(tokens.begin() + 2, tokens.end());
+        //         vector<vector<Condition>> conditionGroups = parseAdvancedConditions(condTokens);
+        //         printColumnHeader(colIndex);
+        //         for (const auto &pk : rowOrder) {
+        //             auto it = dataMap.find(pk);
+        //             if (it != dataMap.end() && evaluateAdvancedConditions(it->second, conditionGroups)) {
+        //                 // Reconstruct the cell for this column.
+        //                 string cell;
+        //                 if (colIndex == primaryKeyIndex)
+        //                     cell = it->first;
+        //                 else if (colIndex < primaryKeyIndex)
+        //                     cell = (colIndex < it->second.values.size()) ? it->second.values[colIndex] : "";
+        //                 else {
+        //                     int valIndex = colIndex - 1;
+        //                     cell = (valIndex < it->second.values.size()) ? it->second.values[valIndex] : "";
+        //                 }
+        //                 cout << setw(colWidths[colIndex]) << left << cell << "\n";
+        //             }
+        //         }
+        //     } else {
+        //         printColumnHeader(colIndex);
+        //         for (const auto &pk : rowOrder) {
+        //             auto it = dataMap.find(pk);
+        //             if (it != dataMap.end()) {
+        //                 string cell;
+        //                 if (colIndex == primaryKeyIndex)
+        //                     cell = it->first;
+        //                 else if (colIndex < primaryKeyIndex)
+        //                     cell = (colIndex < it->second.values.size()) ? it->second.values[colIndex] : "";
+        //                 else {
+        //                     int valIndex = colIndex - 1;
+        //                     cell = (valIndex < it->second.values.size()) ? it->second.values[valIndex] : "";
+        //                 }
+        //                 cout << setw(colWidths[colIndex]) << left << cell << "\n";
+        //             }
+        //         }
+        //     }
+        // }
     }
+    
     
 };
 bool Table::hasRow(const string &id) {
-    cout << "Checking if ID exists: " << id << endl;
-    cout << "Current IDs in dataMap:\n";
-    for (const auto& pair : dataMap) {
-        cout << "- " << pair.first << endl;
-    }
+    // cout << "Checking if ID exists: " << id << endl;
+    // cout << "Current IDs in dataMap:\n";
+    // for (const auto& pair : dataMap) {
+    //     cout << "- " << pair.first << endl;
+    // } 
+    // THis is for debugging.
 
     return dataMap.find(id) != dataMap.end();
 }

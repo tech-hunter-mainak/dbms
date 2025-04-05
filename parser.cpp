@@ -259,13 +259,17 @@ private:
 
     void processEnter() {
         // ENTER <database_name>
+        if(!currentDatabase.empty() || !currentTable.empty()){
+            cerr<<"Sys ERR: Enter cannot be used while inside a database!!!"<< endl;
+        }
         if (queryList.empty()) {
-            cout << "ENTER: Database name expected." << endl;
+            cout << "Syntax Error: enter -> Database name expected." << endl;
             return;
         }
         string db_name = getCommand();
         if (!queryList.empty()) {
-            cerr << "Syntax error: unexpected token after database name in ENTER command" << endl;
+            string token = getCommand();
+            cerr << "Syntax error: unexpected token \""<< token <<"\"after database name" << endl;
             return;
         }
         try {
@@ -273,7 +277,7 @@ private:
                 fs::current_path(db_name);
                 currentDatabase = db_name;
                 currentTable = "";
-                if (currentTableInstance) {
+                if (currentTableInstance) { // here istance of currentTableInstance is deleted.
                     delete currentTableInstance;
                     currentTableInstance = nullptr;
                 }
@@ -287,18 +291,17 @@ private:
 
     void processChoose() {
         // CHOOSE <table_name>
-        if (queryList.empty()) {
-            cout << "CHOOSE: Table name expected." << endl;
+        if (currentDatabase.empty()) {
+            cout << "Sys ERR: Enter a database to use \"CHOOSE\"" << endl;
             return;
         }
-        string table_name = queryList.front();
-        queryList.pop_front();
+        if (queryList.empty()) {
+            cout << "Syntax Error: choose -> Table name expected." << endl;
+            return;
+        }
+        string table_name = getCommand();
         if (!queryList.empty()) {
             cerr << "Syntax error: unexpected token after table name in CHOOSE command" << endl;
-            return;
-        }
-        if (currentDatabase.empty()) {
-            cout << "No database selected. Use ENTER <database> before choosing a table." << endl;
             return;
         }
         try {
@@ -314,7 +317,7 @@ private:
                 }
                 currentTableInstance = new Table(table_name);
             } else {
-                cout << "Table \"" << table_name << "\" does not exist." << endl;
+                cerr << "Table \"" << table_name << "\" does not exist.Create it using MAKE command." << endl;
             }
         } catch (const fs::filesystem_error &e) {
             cerr << "Filesystem error in CHOOSE command: " << e.what() << endl;
@@ -332,7 +335,7 @@ private:
         }
         currentTable = "";
         currentDatabase = "";
-        cout << "CRASH: Forcing immediate termination of the DBMS session." << endl;
+        cout << "MiniDB is closing....\n CLOSED!" << endl; // make sure to change the project name
         exitProgram = true;
     }
 
@@ -352,44 +355,44 @@ private:
             listTables();
         }
         else if (currentDatabase != "" && currentTable != "") {
-            cout << "LIST command is not available in table context." << endl;
+            cout << "Sys ERR: LIST command is not available in table." << endl;
         }
     }
 
     void processShow() {
         string params;
-            while (!queryList.empty()) {
-                params += queryList.front() + " ";
-                queryList.pop_front();
-            }
-            if (!params.empty())
-                params.pop_back();
-            if (currentTableInstance)
-                currentTableInstance->show(params);
-            else
-                cout << "No table selected for SHOW command." << endl;
+        while (!queryList.empty()) {
+            params += queryList.front() + " ";
+            queryList.pop_front();
+        }
+        if (!params.empty())
+            params.pop_back();
+        if (currentTableInstance)
+            currentTableInstance->show(params);
+        else
+            cout << "No table selected for SHOW command." << endl;
     }
 
     void processRollback() {
         if (currentTable.empty()){
-            cout << "No table selected for transaction rollback." << endl;
+            cout << "Sys ERR: No table selected for transaction rollback." << endl;
             return;
         }
         if (currentTableInstance)
             currentTableInstance->rollbackTransaction();
         else
-            cout << "No table instance available for rollback." << endl;
+            cout << "Sys ERR: No table selected for transaction rollback." << endl;
     }
 
     void processCommit() {
         if (currentTable.empty()){
-            cout << "No table selected for transaction commit." << endl;
+            cout << "Sys ERR: No table selected for transaction commit." << endl;
             return;
         }
         if (currentTableInstance)
             currentTableInstance->commitTransaction();
         else
-            cout << "No table instance available for commit." << endl;
+            cout << "Sys ERR: No table selected for transaction commit." << endl;
     }
 
 public:
@@ -516,11 +519,11 @@ list<string> input() {
                 case '"':
                     // Toggle double quote flag and preserve the quote.
                     d_quotation = !d_quotation;
-                    word.push_back(ch);
+                    // word.push_back(ch);  /////////////////////////////  I REMOVED THE PRESERVE QUOTE IF ANY ERROR OCCURS WHILE PARSING CHECK THIS
                     break;
                 case '\'':
                     s_quotation = !s_quotation;
-                    word.push_back(ch);
+                    // word.push_back(ch); /////////////////////////////  I REMOVED THE PRESERVE QUOTE IF ANY ERROR OCCURS WHILE PARSING CHECK THIS
                     break;
                 case '|':
                 case '=':
@@ -555,7 +558,7 @@ list<string> input() {
     if (!word.empty())
         query.push_back(word);
     if (inside_parentheses)
-        throw invalid_argument("Mismatched parentheses in input.");
+        cerr << "Mismatched parentheses in input." << endl;
     
 // Comment out below lines, For debugging: print tokens
     for (const string &token : query) {
