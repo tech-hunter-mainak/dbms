@@ -174,31 +174,14 @@ vector<string> tokenizeColumnDef(const string &colDef) {
 // Every column must have at least a column name and a datatype.
 void make_table(list<string> &queryList) {
     string headersToken = "";
-    // if (!queryList.empty()) {
-        headersToken = queryList.front();
-        queryList.pop_front();
-        // If headersToken starts with '(' and doesn't end with ')', combine tokens until a closing ')' is found.
-        // if (!headersToken.empty() && headersToken.front() == '(' && headersToken.back() != ')') {
-        //     while (!queryList.empty() && queryList.back().back() != ')') {
-        //         headersToken += " " + queryList.front();
-        //         queryList.pop_front();
-        //     }
-        //     if (!queryList.empty()) {
-        //         headersToken += " " + queryList.front();
-        //         queryList.pop_front();
-        //     }
-        // }
-        headersToken = trimStr(headersToken);
-        // if (!headersToken.empty() && headersToken.front() == '(' && headersToken.back() == ')') {
-        //     headersToken = headersToken.substr(1, headersToken.size() - 2);
-        // }
-    // }
-    
-    // Open a new CSV file for the table using the table name from currentTable.
+    headersToken = queryList.front();
+    queryList.pop_front();
+    headersToken = trimStr(headersToken);
+
     string filename = currentTable + ".csv";
     ifstream file(filename); // make this file absolute if needed //////////////////////
     if (file.good()) {
-        cout << "Table already exists with name "<< filename << endl;
+        cout << "Table already exists with name " << filename << endl;
         return;
     }
     file.close();
@@ -208,18 +191,20 @@ void make_table(list<string> &queryList) {
         cerr << "Failed to create table file!" << endl;
         return;
     }
-    
+
     string finalHeader;
+    int primaryKeyIndex = -1;
+
     if (!headersToken.empty()) {
-        // Split the header string by commas.
         vector<string> colDefs;
-        istringstream headerStream(headersToken); /*istringstream is a class from the <sstream> header. 
+        istringstream headerStream(headersToken);
+        /*istringstream is a class from the <sstream> header. 
             It allows you to treat a string like a stream, so you can extract values from it just like you’d read from cin or a file.
         */ 
-
         string colDef;
         while (getline(headerStream, colDef, ',')) {
-            colDef = trimStr(colDef); // Reads from headerStream, one comma-separated value at a time. like this 
+            colDef = trimStr(colDef);
+            // Reads from headerStream, one comma-separated value at a time. like this 
             // " id INT PRIMARY_KEY"
             // " name VARCHAR"
             // " age INT"
@@ -227,62 +212,84 @@ void make_table(list<string> &queryList) {
             if (!colDef.empty())
                 colDefs.push_back(colDef);
         }
-        // Process each column definition.
+
         vector<string> formattedCols;
+        int index = 0;
         for (const auto &def : colDefs) {
             vector<string> tokens = tokenizeColumnDef(def);
             if (tokens.size() < 2) {
                 cout << "Invalid column definition (must have column name and datatype): " << def << endl;
                 return;
             }
-            // First token: column name.
+
             string colName = tokens[0];
-            // Second token: datatype.
             string dataType = tokens[1];
-            transform(dataType.begin(), dataType.end(), dataType.begin(), ::toupper); // transform inbuilt in algorithm, toupper built in cctype
-            // Validate datatype
+            transform(dataType.begin(), dataType.end(), dataType.begin(), ::toupper);
+
             if (!isValidDataType(dataType)) {
                 cout << "Invalid data type for column '" << colName << "': " << dataType << endl;
                 string path = fs::current_path().string();
-                cout<<path + "/" + currentTable<<endl;
-                eraseTable(path + "/" + currentTable,0); // 0 overrides the function
+                eraseTable(path + "/" + currentTable, 0);
                 currentTable = "";
                 return;
             }
 
-            // Validate and build constraints
             string constraints = "";
+            bool isPrimaryKey = false;
             for (size_t i = 2; i < tokens.size(); i++) {
                 string cons = tokens[i];
                 transform(cons.begin(), cons.end(), cons.begin(), ::toupper);
                 if (!isValidConstraint(cons)) {
                     cout << "Invalid constraint '" << cons << "' for column '" << colName << "'." << endl;
                     string path = fs::current_path().string();
-                    eraseTable(path + "/" + currentTable,0);
+                    eraseTable(path + "/" + currentTable, 0);
                     currentTable = "";
                     return;
                 }
+
+                if (cons == "PRIMARY_KEY") {
+                    if (primaryKeyIndex != -1) {
+                        cerr << "Error: Multiple PRIMARY_KEY definitions found. Only one PRIMARY_KEY is allowed." << endl;
+                        string path = fs::current_path().string();
+                        eraseTable(path + "/" + currentTable, 0);
+                        currentTable = "";
+                        return;
+                    }
+                    if (dataType != "INT") {
+                        cerr << "Error: Only INT columns can be defined as PRIMARY_KEY. Column '" << colName << "' has type '" << dataType << "'." << endl;
+                        string path = fs::current_path().string();
+                        eraseTable(path + "/" + currentTable, 0);
+                        currentTable = "";
+                        return;
+                    }
+                    isPrimaryKey = true;
+                    primaryKeyIndex = index;
+                }
+
                 constraints += "(" + cons + ")";
             }
-            // Build formatted column: columnName(DATATYPE)(constraint...)
+
             string formatted = colName + "(" + dataType + ")" + constraints;
             formattedCols.push_back(formatted);
+            index++;
         }
-        // Join formatted columns with commas.
+
+        if (primaryKeyIndex == -1) {
+            cerr << "Error: No PRIMARY_KEY defined. Please specify a PRIMARY_KEY for the table." << endl;
+            return;
+        }
+
         for (size_t i = 0; i < formattedCols.size(); i++) {
             finalHeader += formattedCols[i];
             if (i != formattedCols.size() - 1)
                 finalHeader += ",";
         }
     }
-    
-    // Write the header to the CSV file.
+
     newTable << finalHeader << "\n";
     cout << "Table created with headers: " << finalHeader << endl;
     newTable.close();
-    
-    // The table name remains stored in currentTable.
-    cout << "Table is Sucessfully Created."<< endl;
+    cout << "Table is Successfully Created with primary key column index: " << primaryKeyIndex << endl;
 }
 
 //--------------------------------------------------------------------------------

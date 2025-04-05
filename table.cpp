@@ -27,6 +27,9 @@ string trim(const string &s) {
 
 
 bool validateValue(const string &value, const string &dataType) {
+    if(value == "null"){
+        return true;
+    }
     if (dataType == "INT") {
         try {
             size_t idx;
@@ -113,24 +116,30 @@ bool validateValue(const string &value, const string &dataType) {
 vector<string> extractValues(const string &command)
 {
     vector<string> values;
-    size_t start = command.find('(');
-    size_t end = command.find(')');
-    if (start == string::npos || end == string::npos || start > end) {
-        cout << "Invalid command format. Use: insert(\"value1\", \"value2\", ...)\n";
-        return values;
-    }
-    string data = command.substr(start + 1, end - start - 1); // Extract inside ()
-    stringstream ss(data);
+    // size_t start = command.find('(');
+    // size_t end = command.find(')');
+    // if (start == string::npos || end == string::npos || start > end) {
+    //     cout << "Invalid command format. Use: insert values (\"value1\", \"value2\", ...)\n";
+    //     return values;
+    // }
+    // string data = command.substr(start + 1, end - start - 1); // Extract inside ()
+    stringstream ss(command);
     string item;
     while (getline(ss, item, ',')) {
         // Trim spaces and remove quotes.
         item.erase(remove(item.begin(), item.end(), '"'), item.end());
         item.erase(0, item.find_first_not_of(" \t"));
         item.erase(item.find_last_not_of(" \t") + 1);
-        values.push_back(item);
+        // cout<<item<<endl; debugging statement.
+        if(item.empty()){
+            values.push_back("null");
+        } else {
+            values.push_back(item);
+        }
     }
     return values;
 }
+
 // class declaration
 class Table {
 private:
@@ -141,7 +150,7 @@ private:
     unordered_map<string, Row> dataMap;
     vector<string> rowOrder;  // Keeps row IDs in CSV insertion order.
     unordered_map<string, pair<string, string>> columnMeta;
-    int primaryKeyIndex; // Index of the primary key column.
+    int primaryKeyIndex; 
     int columnWidth;
 
 
@@ -232,6 +241,7 @@ public:
     // For checking if a row or column exists.
     bool hasRow(const string &id);
     bool hasColumn(const string &colName);
+    void setPrimaryKeyIndex(int index) { primaryKeyIndex = index; }
     // For deleting an entire column.
     void deleteColumn(const string &colName);
 
@@ -254,9 +264,12 @@ public:
         headers.clear();
         columnMeta.clear();
         
+        // Reset primaryKeyIndex to an invalid value.
+        primaryKeyIndex = -1;
+        
         ifstream file(filename);
         if (!file.is_open()) {
-            cout << "Error occured while opening " << filename << " check tablename."<< "!\n";
+            cout << "Error occured while opening " << filename << " check tablename." << "!\n";
             return;
         }
         string line;
@@ -271,14 +284,16 @@ public:
             }
             if (isHeader) {
                 // Parse header row to fill headers and columnMeta.
+                // Also detect which column is designated as the PRIMARY_KEY.
+                int colIndex = 0;
                 for (auto &col : rowValues) {
                     size_t firstParen = col.find('(');
                     size_t firstClose = col.find(')', firstParen);
                     if (firstParen != string::npos && firstClose != string::npos) {
-                        // Extract column name and data type
+                        // Extract column name and data type.
                         string colName = trim(col.substr(0, firstParen));
                         string dataType = trim(col.substr(firstParen + 1, firstClose - firstParen - 1));
-                        // Collect multiple constraints
+                        // Collect multiple constraints.
                         vector<string> constraints;
                         size_t currentPos = firstClose + 1;
                         while (true) {
@@ -294,18 +309,55 @@ public:
                         for (size_t i = 0; i < constraints.size(); ++i) {
                             allConstraints += constraints[i];
                             if (i != constraints.size() - 1)
-                                allConstraints += ","; // Join constraints with space or comma as needed
+                                allConstraints += ","; // Join constraints with comma.
                         }
                         headers.push_back(colName);
                         columnMeta[colName] = {dataType, allConstraints};
+                        
+                        // Check if this column is the PRIMARY_KEY.
+                        for (auto &c : constraints) {
+                            if (c == "PRIMARY_KEY") {
+                                // Set the primary key index.
+                                primaryKeyIndex = colIndex;
+                                // cout<<primaryKeyIndex;
+                                break;
+                            }
+                        }
+                        colIndex++;
                     }
                 }
                 isHeader = false;
+                // If no primary key was detected, you might want to print an error.
+                if (primaryKeyIndex == -1) {
+                    // cout << "Warning: No PRIMARY_KEY detected in header." << endl;
+                    // thiking of implementing to add a primary column ourselves
+                    // Depending on your design, you could choose to exit here.
+                } else {
+                    cout << " PRIMARY_KEY detected in header with id"<< primaryKeyIndex << endl;
+                }
             } else {
                 if (!rowValues.empty()) {
-                    string id = rowValues[0];
-                    dataMap[id] = Row(id, vector<string>(rowValues.begin() + 1, rowValues.end()));
-                    rowOrder.push_back(id);
+                    // debug print the row values if needed
+                    // for (const auto& pair : dataMap) {
+                    //     cout << "- " << pair.first << endl;
+                    // }
+                    // Ensure that the row has as many values as there are headers.
+                    if (rowValues.size() < headers.size()) {
+                        cout << "Row skipped: insufficient number of columns." << endl;
+                        continue;
+                    }
+                    // Extract the primary key value using primaryKeyIndex.
+                    string pkValue = rowValues[primaryKeyIndex];
+                    // Build a new vector of values that excludes the primary key column.
+                    vector<string> otherValues;
+                    for (size_t i = 0; i < rowValues.size(); i++) {
+                        if (i == (size_t)primaryKeyIndex)
+                            continue;
+                        otherValues.push_back(rowValues[i]);
+                    }
+                    // Insert into dataMap using the primary key value.
+                    dataMap[pkValue] = Row(pkValue, otherValues);
+                    rowOrder.push_back(pkValue);
                 }
             }
         }
@@ -335,15 +387,15 @@ public:
             }
         }
     }
-    
+    /* DONE */
     // Insert a row given a command string (which includes parenthesized values).
     void insertRow(const string &command) {
         vector<string> values = extractValues(command);
         if (values.empty()) {
-            cout << "Error: No values extracted for insertion." << endl;
+            cout << "Syntax Error: values are not entered correctly" << endl;
             return;
         }
-        if (values.size() != headers.size()) {
+        if (values.size() > headers.size()) {
             cout << "Error: Number of values (" << values.size() 
                  << ") does not match number of columns (" << headers.size() << ")." << endl;
             return;
@@ -358,16 +410,21 @@ public:
                 return;
             }
         }
-        // The first value is assumed to be the row ID.
-        string id = values[0];
+        // The primary_key constraint is assumed to be row ID. this skips insertion.
+        string id = values[primaryKeyIndex];
         if (dataMap.find(id) != dataMap.end()) {
-            cout << "Row with ID " << id << " already exists. Skipping insertion." << endl;
+            cout << "Constraint Error: Primary Key " << id << " already exists. Skipping insertion." << endl;
             return;
         }
-        vector<string> rowValues(values.begin() + 1, values.end());
+        vector<string> rowValues;
+        for (size_t i = 0; i < values.size(); i++) {
+            if (i == (size_t)primaryKeyIndex)
+                continue;
+            rowValues.push_back(values[i]);
+        }
         dataMap[id] = Row(id, rowValues);
         rowOrder.push_back(id);
-        cout << "Data inserted successfully into in-memory table." << endl;
+        cout << "Data inserted successfully into table. into id"<< id << endl;
     }
     
     // Delete a row with a given ID.
@@ -389,36 +446,37 @@ public:
         rowOrder.clear();
     }
     
-    // Update a value in a given column for rows that match a condition.
-    void updateValueByCondition(const string &colName, const string &oldValue, const string &newValue) {
-        int colIndex = -1;
-        for (int i = 0; i < headers.size(); i++) {
-            if (headers[i] == colName) {
-                colIndex = i;
-                break;
-            }
-        }
-        if (colIndex == -1) {
-            cout << "Column \"" << colName << "\" not found." << endl;
-            return;
-        }
-        if (colIndex == 0) {  // Prevent updating primary key.
-            cout << "Primary key column cannot be updated." << endl;
-            return;
-        }
-        int updateCount = 0;
-        for (auto &pair : dataMap) {
-            int index = colIndex - 1;
-            if (index < pair.second.values.size() && pair.second.values[index] == oldValue) {
-                pair.second.values[index] = newValue;
-                updateCount++;
-            }
-        }
-        if (updateCount > 0)
-            cout << updateCount << " row(s) updated successfully." << endl;
-        else
-            cout << "No rows found with " << colName << " = " << oldValue << endl;
-    }
+    // // Update a value in a given column for rows that match a condition.
+    // void updateValueByCondition(const string &colName, const string &oldValue, const string &newValue) {
+    //     int colIndex = -1;
+    //     for (int i = 0; i < headers.size(); i++) {
+    //         if (headers[i] == colName) {
+    //             colIndex = i;
+    //             break;
+    //         }
+    //     }
+    //     if (colIndex == -1) {
+    //         cout << "Column \"" << colName << "\" not found." << endl;
+    //         return;
+    //     }
+    //     if (colIndex == primaryKeyIndex && dataMap.find(newValue) != dataMap.end()) { 
+    //         cout << "Constraint Error: Primary Key " << newValue << " already exists. Skipping Updation." << endl;
+    //         return; 
+    //     }
+
+    //     int updateCount = 0;
+    //     for (auto &pair : dataMap) {
+    //         int index = colIndex - 1;
+    //         if (index < pair.second.values.size() && pair.second.values[index] == oldValue) {
+    //             pair.second.values[index] = newValue;
+    //             updateCount++;
+    //         }
+    //     }
+    //     if (updateCount > 0)
+    //         cout << updateCount << " row(s) updated successfully." << endl;
+    //     else
+    //         cout << "No rows found with " << colName << " = " << oldValue << endl;
+    // }
         
     void commitTransaction() {
         writeToFile();
@@ -607,6 +665,12 @@ public:
     
 };
 bool Table::hasRow(const string &id) {
+    cout << "Checking if ID exists: " << id << endl;
+    cout << "Current IDs in dataMap:\n";
+    for (const auto& pair : dataMap) {
+        cout << "- " << pair.first << endl;
+    }
+
     return dataMap.find(id) != dataMap.end();
 }
 
@@ -631,7 +695,7 @@ void Table::deleteColumn(const string &colName) {
         cout << "Column \"" << colName << "\" not found." << endl;
         return;
     }
-    if (colIndex == 0) {  // Prevent deletion of primary key.
+    if (colIndex == primaryKeyIndex) {  // Prevent deletion of primary key.
         cout << "Primary key column cannot be deleted." << endl;
         return;
     }
@@ -762,8 +826,7 @@ vector<vector<Condition>> parseAdvancedConditions(const vector<string>& tokens) 
     return groups;
 }
 // Overload that updates only the specified column.
-void Table::updateValueByCondition(const string &colName, const string &oldValue, const string &newValue,
-                                   const vector<vector<Condition>> &conditionGroups) {
+void Table::updateValueByCondition(const string &colName, const string &oldValue, const string &newValue,const vector<vector<Condition>> &conditionGroups) {
     int colIndex = -1;
     for (int i = 0; i < headers.size(); i++) {
         if (headers[i] == colName) {
@@ -775,9 +838,9 @@ void Table::updateValueByCondition(const string &colName, const string &oldValue
         cout << "Column \"" << colName << "\" not found." << endl;
         return;
     }
-    if (colIndex == 0) {  // Primary key should not be updated.
-        cout << "Primary key column cannot be updated." << endl;
-        return;
+    if (colIndex == primaryKeyIndex && dataMap.find(newValue) != dataMap.end()) { 
+        cout << "Constraint Error: Primary Key " << newValue << " already exists. Skipping Updation." << endl;
+        return; 
     }
     
     int updateCount = 0;
@@ -798,13 +861,15 @@ void Table::updateValueByCondition(const string &colName, const string &oldValue
 }
 
 // Overload that updates across all columns (except primary key) where any cell equals oldValue.
-void Table::updateValueByCondition(const string &oldValue, const string &newValue,
-                                   const vector<vector<Condition>> &conditionGroups) {
+void Table::updateValueByCondition(const string &oldValue, const string &newValue,const vector<vector<Condition>> &conditionGroups) {
     int updateCount = 0;
     for (auto &pair : dataMap) {
         if (evaluateAdvancedConditions(pair.second, conditionGroups)) {
             // For each column (except primary key), update if the cell equals oldValue.
-            for (int i = 1; i < headers.size(); i++) {
+            for (int i = 0; i < headers.size(); i++) {
+                if(i == primaryKeyIndex && dataMap.find(newValue) != dataMap.end()){
+                    continue;
+                }
                 int idx = i - 1;
                 if (idx < pair.second.values.size() && pair.second.values[idx] == oldValue) {
                     pair.second.values[idx] = newValue;

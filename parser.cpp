@@ -28,6 +28,10 @@ private:
     /* DONE */
     void processMake() {
         // MAKE <table_name> [ ( <column_definitions> ) ]
+        if(currentDatabase.empty()){
+            cerr <<"Enter a database to make a table." << endl;
+            return ;
+        }
         if (queryList.empty()) {
             cout << "MAKE: Table name expected." << endl;
             return;
@@ -147,14 +151,16 @@ private:
                     item = item.substr(1, item.size() - 2);
                 }
                 if (currentTableInstance) {
-                    if (currentTableInstance->hasRow(item))
+                    if (currentTableInstance->hasRow(item)){
+                        cout<<"Triggered"<<endl;
                         currentTableInstance->deleteRow(item);
+                    }
                     else if (currentTableInstance->hasColumn(item))
                         currentTableInstance->deleteColumn(item);
                     else
                         cout << "DEL: Neither a row with ID nor a column named \"" << item << "\" exists." << endl;
                 } else {
-                    cout << "No table selected for deletion." << endl;
+                    cout << "No table chosen for deletion." << endl;
                 }
             }
         }
@@ -163,17 +169,18 @@ private:
         // This branch supports two syntaxes:
             // Syntax 1: CHANGE <column_name> <old_value> TO <new_value> Where <condition>
             // Syntax 2: CHANGE <old_value> TO <new_value> Where <condition>
+            if (!currentTableInstance) {
+                cout << "No table selected for update." << endl;
+                return;
+            }
             if (queryList.empty()) {
-                cerr << "CHANGE: Not enough tokens provided." << endl;
+                cerr << "Syntax Error: expected syntax -> CHANGE <old_value> TO <new_value> Where <condition>" << endl;
                 return;
             }
             
             bool hasColumnSpecified = false;
             string colName, oldValue, newValue;
-            
-            // Peek at the first token.
-            string firstToken = queryList.front();
-            queryList.pop_front();
+            string firstToken = getCommand();
             
             // If the next token is "TO", then it's Syntax 2 (no column specified).
             if (!queryList.empty() && queryList.front() == TO) {
@@ -184,24 +191,22 @@ private:
                     cerr << "CHANGE: New value missing." << endl;
                     return;
                 }
-                newValue = queryList.front();
-                queryList.pop_front();
+                newValue = getCommand();
             } else {
                 // Otherwise, it's Syntax 1 (with column name).
                 hasColumnSpecified = true;
                 colName = firstToken;
                 // Remove surrounding quotes if present.
-                if (!colName.empty() && colName.front() == '"' && colName.back() == '"') {
+                if (!colName.empty() && ((colName.front() == '"' && colName.back() == '"') || (colName.front() == '\'' && colName.back() == '\''))) {
                     colName = colName.substr(1, colName.size() - 2);
                 }
                 if (queryList.empty()) {
-                    cerr << "CHANGE: Missing old value." << endl;
+                    cerr << "Syntax Error: change -> Missing old value." << endl;
                     return;
                 }
-                oldValue = queryList.front();
-                queryList.pop_front();
+                oldValue = getCommand();
                 if (queryList.empty() || queryList.front() != TO) {
-                    cerr << "CHANGE: Expected 'TO' after old value." << endl;
+                    cerr << "Syntax Error: change -> Expected 'TO' after old value." << endl;
                     return;
                 }
                 // Remove "TO"
@@ -227,12 +232,6 @@ private:
                     return;
                 }
             }
-            
-            if (!currentTableInstance) {
-                cout << "No table selected for update." << endl;
-                return;
-            }
-            
             // Call the appropriate Table method.
             if (hasColumnSpecified)
                 currentTableInstance->updateValueByCondition(colName, oldValue, newValue, conditionGroups);
@@ -241,24 +240,18 @@ private:
     }
 
     void processInsert() {
-        // Expect one or more VALUES clauses.
+        string token = getCommand();
+        if (token != VALUES || queryList.empty()) {
+            cerr << "Error:Unexpected format go through docs."<< endl;
+            return;
+        }
         while (!queryList.empty()) {
-            string token = queryList.front();
-            queryList.pop_front();
-            if (token != VALUES) {
-                cout << "Unexpected token in INSERT command: " << token << endl;
-                return;
-            }
-            if (queryList.empty()){
-                cout << "VALUES: expected parenthesized list after VALUES keyword." << endl;
-                break;
-            }
-            string valuesToken = queryList.front();
-            queryList.pop_front();
-            // Reconstruct a command string for insertRow.
-            string insertCommand = "INSERT(" + valuesToken + ")";
+            string valuesToken = getCommand();
+            cout<<valuesToken<<endl;
+            // // Reconstruct a command string for insertRow.
+            // string insertCommand = "INSERT(" + valuesToken + ")";
             if (currentTableInstance)
-                currentTableInstance->insertRow(insertCommand);
+                currentTableInstance->insertRow(valuesToken);
             else
                 cout << "No table selected for insertion." << endl;
         }
