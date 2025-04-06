@@ -5,8 +5,8 @@ extern string fs_path;         // Root DBMS folder path
 extern string currentDatabase; // Currently selected database name (empty if none)
 extern string currentTable;    // Currently selected table name (empty if none)
 extern bool exitProgram;
-
-
+extern bool isAutoPrimaryKey;
+extern int autoIdx;
 //--------------------------------------------------------------------------------
 // Database & Table Creation / Erasure Functions
 //--------------------------------------------------------------------------------
@@ -183,7 +183,7 @@ void make_table(list<string> &queryList) {
     string filename = currentTable + ".csv";
     ifstream file(filename); // make this file absolute if needed //////////////////////
     if (file.good()) {
-        cout << "Table already exists with name " << filename << endl;
+        cerr << "Table already exists with name " << filename << endl;  //////// make this terminate the program or clear query because it is entering the table 
         return;
     }
     file.close();
@@ -277,8 +277,9 @@ void make_table(list<string> &queryList) {
         }
 
         if (primaryKeyIndex == -1) {
-            cerr << "Error: No PRIMARY_KEY defined. Please specify a PRIMARY_KEY for the table." << endl;
-            return;
+            isAutoPrimaryKey = true;
+            primaryKeyIndex = 0;
+            formattedCols.insert(formattedCols.begin(), "self_pk(INT)(PRIMARY_KEY)");
         }
 
         for (size_t i = 0; i < formattedCols.size(); i++) {

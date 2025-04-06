@@ -7,7 +7,8 @@ bool exitProgram = false;
 string fs_path = "DBMS";    // or whatever the root directory should be
 string currentDatabase = "";
 string currentTable = "";
-
+bool isAutoPrimaryKey = false;
+int autoIdx = 1;
 int main(int argc, char const *argv[])
 {
     cout << "Welcome to the robust DBMS! Type your commands below." << endl;
