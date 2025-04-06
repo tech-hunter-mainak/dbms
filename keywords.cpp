@@ -22,3 +22,4 @@
 #define LIMIT "limit"
 #define TILDE '~'
 #define TO "to"
+#define DESCRIBE "describe"

@@ -85,7 +85,7 @@ private:
             return;
         }
         string name = getCommand();
-        checkExtraTokens();
+        if(checkExtraTokens()) return;
         // At root level (no database selected): erase a database.
         if (currentDatabase.empty()) {
             if (eraseDatabase(name)) {
@@ -109,7 +109,7 @@ private:
         if (currentTable == "") {
             cout << "Sys Err: Please choose a table before cleaning." << endl;
         } else {
-            checkExtraTokens();
+            if(checkExtraTokens()) return;
             if (currentTableInstance)
                 currentTableInstance->cleanTable();
             else{   
@@ -176,6 +176,15 @@ private:
                     cout << "Logic Error: Neither a row with primaryKey nor a column named \"" << item << "\" exists." << endl;
             }
         }
+    }
+    void processDescribe(){
+        if (currentTable.empty()) {
+            cout << "Sys ERR: DESCRIBE -> can only be used in table" << endl;
+            return ;
+        }
+        if(checkExtraTokens()) return;
+        if (currentTableInstance)
+            currentTableInstance->describe();
     }
     void processChange() {
         // This branch supports two syntaxes:
@@ -290,7 +299,7 @@ private:
             return;
         }
         string db_name = getCommand();
-        checkExtraTokens();
+        if(checkExtraTokens()) return;
         try {
             if (fs::exists(db_name) && fs::is_directory(db_name)) {
                 fs::current_path(db_name);
@@ -325,7 +334,7 @@ private:
             return;
         }
         string table_name = getCommand();
-        checkExtraTokens();
+        if(checkExtraTokens()) return;
         try {
             string filename = table_name + ".csv";
             ifstream file(filename);
@@ -346,7 +355,7 @@ private:
     }
 
     void processClose() {
-        checkExtraTokens();
+        if(checkExtraTokens()) return;
         if (currentTableInstance) {
             exitTable();
         }
@@ -355,12 +364,12 @@ private:
     }
 
     void processExit() {
-        checkExtraTokens();
+        if(checkExtraTokens()) return;
         move_up();
     }
 
     void processList() {
-        checkExtraTokens();
+        if(checkExtraTokens()) return;
         if (currentDatabase == "" && currentTable == "") {
             listDatabases();
         }
@@ -415,12 +424,13 @@ public:
         queryList.pop_front();
         return cmd;
     }
-    void checkExtraTokens(){
+    bool checkExtraTokens(){
         if (!queryList.empty()) {
             cout << "Syntax Error: unexpected token \""<< queryList.front() << "\"."<< endl;
             queryList.clear();
-            return ;
+            return true;
         }
+        return false;
     }
     // The parse method processes all tokens.
     void parse() {
@@ -463,6 +473,10 @@ public:
                     processExit();
                 }  
             }
+            else if (query == DESCRIBE) {
+                processDescribe();
+            }
+            
             else if (query == LIST) {
                 processList();
             }
