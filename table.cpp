@@ -9,25 +9,24 @@ struct Condition {
 };
 
 // Parses tokens into condition groups. Each OR group is a vector of Conditions.
-vector<vector<Condition>> parseAdvancedConditions(const vector<string>& tokens);
 
 // Helper for comparing two values based on an operator.
 bool compareValues(const string &actual, const string &op, const string &expected);
 
-
 // (Other helper functions such as extractValues, trim, etc. can be declared here or in a utilities header)
 // Helper function to trim spaces.
-string trim(const string &s) {
-    size_t start = s.find_first_not_of(" \t");
-    size_t end = s.find_last_not_of(" \t");
-    if (start == string::npos || end == string::npos)
-        return "";
-    return s.substr(start, end - start + 1);
-}
+// not required already in utils
+// string trim(const string &s) {
+//     size_t start = s.find_first_not_of(" \t");
+//     size_t end = s.find_last_not_of(" \t");
+//     if (start == string::npos || end == string::npos)
+//         return "";
+//     return s.substr(start, end - start + 1);
+// }
 
 
 bool validateValue(const string &value, const string &dataType) {
-    if(value == "null"){
+    if(value == ""){
         return true;
     }
     if (dataType == "INT") {
@@ -130,7 +129,6 @@ vector<string> extractValues(const string &command)
         item.erase(remove(item.begin(), item.end(), '"'), item.end());
         item.erase(0, item.find_first_not_of(" \t"));
         item.erase(item.find_last_not_of(" \t") + 1);
-        // cout<<item<<endl; debugging statement.
         if(item.empty()){
             values.push_back("null");
         } else {
@@ -152,6 +150,7 @@ private:
     unordered_map<string, pair<string, string>> columnMeta;
     int primaryKeyIndex; 
     int columnWidth;
+    bool unsavedChanges;
 
 
     void writeToFile() {
@@ -241,7 +240,7 @@ public:
     // Constructor: given a table name, it sets filename and retrieves data.
     /*           DONE            */
     Table(const string &tName) 
-      : tableName(tName), filename(tName + ".csv"), columnWidth(15)
+      : tableName(tName), filename(tName + ".csv"), columnWidth(15) ,unsavedChanges(false)
     {
         retrieveData();
     }
@@ -253,13 +252,13 @@ public:
         headers.clear();
         columnMeta.clear();
     }
+    vector<vector<Condition>> parseAdvancedConditions(const vector<string>& tokens);
     // For checking if a row or column exists.
     bool hasRow(const string &id);
     bool hasColumn(const string &colName);
     void setPrimaryKeyIndex(int index) { primaryKeyIndex = index; }
     // For deleting an entire column.
     void deleteColumn(const string &colName);
-
     // For deleting rows based on advanced conditions.
     void deleteRowsByAdvancedConditions(const vector<vector<Condition>> &groups);
     bool evaluateAdvancedConditions(const Row &row, const vector<vector<Condition>> &groups);
@@ -306,8 +305,8 @@ public:
                     size_t firstClose = col.find(')', firstParen);
                     if (firstParen != string::npos && firstClose != string::npos) {
                         // Extract column name and data type.
-                        string colName = trim(col.substr(0, firstParen));
-                        string dataType = trim(col.substr(firstParen + 1, firstClose - firstParen - 1));
+                        string colName = trimStr(col.substr(0, firstParen));
+                        string dataType = trimStr(col.substr(firstParen + 1, firstClose - firstParen - 1));
                         // Collect multiple constraints.
                         vector<string> constraints;
                         size_t currentPos = firstClose + 1;
@@ -316,7 +315,7 @@ public:
                             size_t close = col.find(')', open);
                             if (open == string::npos || close == string::npos)
                                 break;
-                            string constraint = trim(col.substr(open + 1, close - open - 1));
+                            string constraint = trimStr(col.substr(open + 1, close - open - 1));
                             constraints.push_back(constraint);
                             currentPos = close + 1;
                         }
@@ -347,8 +346,6 @@ public:
                     // cout << "Warning: No PRIMARY_KEY detected in header." << endl;
                     // thiking of implementing to add a primary column ourselves
                     // Depending on your design, you could choose to exit here.
-                } else {
-                    cout << " PRIMARY_KEY detected in header with id"<< primaryKeyIndex << endl;
                 }
             } else {
                 if (!rowValues.empty()) {
@@ -378,40 +375,16 @@ public:
         }
         file.close();
     }
-    
-    // Print all table data in a formatted layout.
-    void printData() {
-        if (headers.empty()) {
-            cout << "No data to display.\n";
-            return;
-        }
-        // Print header row.
-        for (const auto &header : headers) {
-            cout << setw(columnWidth) << left << header;
-        }
-        cout << "\n" << string(headers.size() * columnWidth, '-') << "\n";
-        // Print each row in insertion order.
-        for (const auto &id : rowOrder) {
-            auto it = dataMap.find(id);
-            if (it != dataMap.end()) {
-                cout << setw(columnWidth) << left << it->first;
-                for (const auto &val : it->second.values) {
-                    cout << setw(columnWidth) << left << val;
-                }
-                cout << "\n";
-            }
-        }
-    }
     /* DONE */
     // Insert a row given a command string (which includes parenthesized values).
     void insertRow(const string &command) {
         vector<string> values = extractValues(command);
         if (values.empty()) {
-            cout << "Syntax Error: values are not entered correctly" << endl;
+            cerr << "Syntax Error: values are not entered correctly" << endl;
             return;
         }
         if (values.size() > headers.size()) {
-            cout << "Error: Number of values (" << values.size() 
+            cout << "Logic ERR: Number of values (" << values.size() 
                  << ") does not match number of columns (" << headers.size() << ")." << endl;
             return;
         }
@@ -420,7 +393,7 @@ public:
             string colName = headers[i];
             string expectedType = columnMeta[colName].first;
             if (!validateValue(values[i], expectedType)) {
-                cout << "Error: Value \"" << values[i] << "\" is not valid for column \"" 
+                cout << "Mismatch Error: Value \"" << values[i] << "\" is not valid for column \"" 
                      << colName << "\" of type " << expectedType << "." << endl;
                 return;
             }
@@ -428,7 +401,7 @@ public:
         // The primary_key constraint is assumed to be row ID. this skips insertion.
         string id = values[primaryKeyIndex];
         if (dataMap.find(id) != dataMap.end()) {
-            cout << "Constraint Error: Primary Key " << id << " already exists. Skipping insertion." << endl;
+            cerr << "Constraint Error: Primary Key " << id << " already exists." << endl;
             return;
         }
         vector<string> rowValues;
@@ -439,7 +412,7 @@ public:
         }
         dataMap[id] = Row(id, rowValues);
         rowOrder.push_back(id);
-        cout << "Data inserted successfully into table. into id"<< id << endl;
+        unsavedChanges = true;
     }
     
     // Delete a row with a given ID.
@@ -448,17 +421,19 @@ public:
         if (it != dataMap.end()) {
             dataMap.erase(it);
             rowOrder.erase(remove(rowOrder.begin(), rowOrder.end(), id), rowOrder.end());
-            cout << "Row deleted successfully from in-memory data." << endl;
+            // cout << "Row deleted successfully from in-memory data." << endl;
         }
         else {
-            cout << "ID not found in in-memory data." << endl;
+            cerr << "Logic ERR: There is no record with value "<< id << endl;
         }
+        unsavedChanges = true;
     }
     
     // Clear all rows from the table (keeping headers intact).
     void cleanTable() {
         dataMap.clear();
         rowOrder.clear();
+        unsavedChanges = true;
     }
     
     // // Update a value in a given column for rows that match a condition.
@@ -495,14 +470,14 @@ public:
         
     void commitTransaction() {
         writeToFile();
-        cout << "Commit successful. Changes written to file: " 
-             << fs::absolute(filename).string() << endl;
+        cout << "Response: Commit successful." << endl;
         updateTableMetadata();
+        unsavedChanges = false;
     }
     
     void rollbackTransaction() {
         retrieveData();
-        cout << "Rollback successful. In-memory data restored from file." << endl;
+        cout << "Response: Rollback successful." << endl;
     }
     
     void show(const string &params) {
@@ -513,7 +488,7 @@ public:
         while (iss >> token)
             tokens.push_back(token);
         if (tokens.empty()) {
-            cout << "No arguments provided for SHOW command.\n";
+            cerr << "Syntax Error: SHOW -> No viable arguments provided.\n";
             return;
         }
         
@@ -601,6 +576,7 @@ public:
             if (tokens.size() > 1 && (tokens[1] == "where" || tokens[1] == "WHERE")) {
                 vector<string> condTokens(tokens.begin() + 2, tokens.end());
                 vector<vector<Condition>> conditionGroups = parseAdvancedConditions(condTokens);
+                if(conditionGroups.empty()) return ;
                 printFullHeader();
                 for (const auto &pk : rowOrder) {
                     auto it = dataMap.find(pk);
@@ -765,7 +741,7 @@ public:
             vector<vector<Condition>> conditionGroups;
             if (!condTokens.empty())
                 conditionGroups = parseAdvancedConditions(condTokens);
-            
+            if(conditionGroups.empty()) return ;
             // Print each row that satisfies the conditions (if any).
             for (const auto &pk : rowOrder) {
                 auto it = dataMap.find(pk);
@@ -840,8 +816,7 @@ public:
         //     }
         // }
     }
-    
-    
+    friend void exitTable();
 };
 bool Table::hasRow(const string &id) {
     // cout << "Checking if ID exists: " << id << endl;
@@ -850,8 +825,8 @@ bool Table::hasRow(const string &id) {
     //     cout << "- " << pair.first << endl;
     // } 
     // THis is for debugging.
-
     return dataMap.find(id) != dataMap.end();
+    unsavedChanges = true;
 }
 
 bool Table::hasColumn(const string &colName) {
@@ -861,6 +836,7 @@ bool Table::hasColumn(const string &colName) {
             return true;
     }
     return false;
+    unsavedChanges = true;
 }
 void Table::deleteColumn(const string &colName) {
     // Find the column index.
@@ -872,11 +848,11 @@ void Table::deleteColumn(const string &colName) {
         }
     }
     if (colIndex == -1) {
-        cout << "Column \"" << colName << "\" not found." << endl;
+        cout << "Logic ERR: Column \"" << colName << "\" not found." << endl;
         return;
     }
     if (colIndex == primaryKeyIndex) {  // Prevent deletion of primary key.
-        cout << "Primary key column cannot be deleted." << endl;
+        cerr << "Sys ERR: Primary key column cannot be deleted." << endl;
         return;
     }
     // Remove from headers and metadata.
@@ -887,10 +863,28 @@ void Table::deleteColumn(const string &colName) {
         if (pair.second.values.size() >= colIndex)
             pair.second.values.erase(pair.second.values.begin() + (colIndex - 1));
     }
-    cout << "Column \"" << colName << "\" deleted successfully." << endl;
+    cout << "Response: Column \"" << colName << "\" deleted successfully." << endl;
+    unsavedChanges = true;
 }
 void Table::deleteRowsByAdvancedConditions(const vector<vector<Condition>> &groups) {
     vector<string> rowsToDelete;
+    // --- Step 1: Validate column names before doing anything ---
+    for (const auto &group : groups) {
+        for (const auto &cond : group) {
+            bool columnExists = false;
+            for (const auto &header : headers) {
+                if (header == cond.column) {
+                    columnExists = true;
+                    break;
+                }
+            }
+            if (!columnExists) {
+                cerr << "Logic Error: Column \"" + cond.column + "\" not found." << endl;
+                cout <<"Response: " << rowsToDelete.size() << " row(s) affected." << endl;
+                return;
+            }
+        }
+    }
     // Iterate over each row.
     for (const auto &id : rowOrder) {
         auto it = dataMap.find(id);
@@ -903,7 +897,8 @@ void Table::deleteRowsByAdvancedConditions(const vector<vector<Condition>> &grou
         dataMap.erase(id);
         rowOrder.erase(remove(rowOrder.begin(), rowOrder.end(), id), rowOrder.end());
     }
-    cout << rowsToDelete.size() << " row(s) deleted based on conditions." << endl;
+    cout <<"Response: " << rowsToDelete.size() << " row(s) affected." << endl;
+    unsavedChanges = true;
 }
 bool Table::evaluateAdvancedConditions(const Row &row, const vector<vector<Condition>> &groups) {
     // Each group is OR-connected; conditions within a group are AND-connected.
@@ -920,7 +915,7 @@ bool Table::evaluateAdvancedConditions(const Row &row, const vector<vector<Condi
             }
             if (colIndex == -1) { groupSatisfied = false; break; }
             string actual;
-            if (colIndex == 0)
+            if (colIndex == primaryKeyIndex)
                 actual = row.id;
             else {
                 int idx = colIndex - 1;
@@ -961,7 +956,7 @@ bool compareValues(const string &actual, const string &op, const string &expecte
         return actual != expected;
     return false;
 }
-vector<vector<Condition>> parseAdvancedConditions(const vector<string>& tokens) {
+vector<vector<Condition>> Table::parseAdvancedConditions(const vector<string>& tokens) {
     // so logically speaking for this cond1 AND cond2 OR cond3 AND cond4
     // this is how it gets stored in groups: 
     /*[
@@ -971,13 +966,14 @@ vector<vector<Condition>> parseAdvancedConditions(const vector<string>& tokens) 
     */
     vector<vector<Condition>> groups;
     vector<Condition> currentGroup;
-    auto trimQuotes = [](const string &s) -> string { // this is a lambda function kind of.
+
+    auto trimQuotes = [](const string &s) -> string {
         string trimmed = trimStr(s);
         if (!trimmed.empty() && ((trimmed.front() == '"' && trimmed.back() == '"') || (trimmed.front() == '\'' && trimmed.back() == '\'')))
             trimmed = trimmed.substr(1, trimmed.size() - 2);
         return trimmed;
     };
-    
+
     int i = 0;
     while (i < tokens.size()) {
         if (i + 2 < tokens.size()) {
@@ -985,35 +981,53 @@ vector<vector<Condition>> parseAdvancedConditions(const vector<string>& tokens) 
             cond.column = trimQuotes(tokens[i]);
             cond.op = tokens[i + 1];
             cond.value = trimQuotes(tokens[i + 2]);
+
+            // --- Column name validation here ---
+            bool columnExists = false;
+            for (const auto &header : headers) {
+                if (header == cond.column) {
+                    columnExists = true;
+                    break;
+                }
+            }
+            if (!columnExists) {
+                cerr << "Logic ERR: Column \"" << cond.column << "\" does not exist in table." << endl;
+                return {}; // Invalid column, stop parsing
+            }
+
             currentGroup.push_back(cond);
             i += 3;
-            // Skip an "and" token if present.
+
             if (i < tokens.size() && tokens[i] == AND)
                 i++;
-            // If an "or" token is encountered, finish the current group.
             if (i < tokens.size() && tokens[i] == OR) {
                 groups.push_back(currentGroup);
                 currentGroup.clear();
                 i++;
             }
         } else {
-            cerr << "ERROR: Something wrong in conditions"<<endl; 
-            break;
+            cerr << "Syntax Error: Not enough tokens to form a condition." << endl;
+            return {};
         }
     }
+
     if (!currentGroup.empty())
         groups.push_back(currentGroup);
+
     return groups;
 }
+
 // Overload that updates only the specified column.
 void Table::updateValueByCondition(const string &colName, const string &oldValue, const string &newValue,const vector<vector<Condition>> &conditionGroups) {
     int colIndex = -1;
     for (int i = 0; i < headers.size(); i++) {
+        cout<<headers[i]<<endl;
         if (headers[i] == colName) {
             colIndex = i;
             break;
         }
     }
+    cout<<colIndex<<endl;
     if (colIndex == -1) {
         cout << "Column \"" << colName << "\" not found." << endl;
         return;
@@ -1022,7 +1036,6 @@ void Table::updateValueByCondition(const string &colName, const string &oldValue
         cout << "Constraint Error: Primary Key " << newValue << " already exists. Skipping Updation." << endl;
         return; 
     }
-    
     int updateCount = 0;
     for (auto &pair : dataMap) {
         // Evaluate advanced conditions on the row.
@@ -1034,10 +1047,13 @@ void Table::updateValueByCondition(const string &colName, const string &oldValue
             }
         }
     }
-    if (updateCount > 0)
-        cout << updateCount << " row(s) updated successfully." << endl;
+    if (updateCount > 0){
+        cout <<"Response: " << updateCount << " row(s) updated successfully." << endl;
+        unsavedChanges = true;
+    }   
     else
-        cout << "No matching rows found with " << colName << " = " << oldValue << " under the given conditions." << endl;
+        cout << "Logic ERR: No matching rows found with " << colName << " = " << oldValue << " under the given conditions." << endl;
+
 }
 
 // Overload that updates across all columns (except primary key) where any cell equals oldValue.
@@ -1058,9 +1074,10 @@ void Table::updateValueByCondition(const string &oldValue, const string &newValu
             }
         }
     }
-    if (updateCount > 0)
-        cout << updateCount << " row(s) updated successfully." << endl;
+    if (updateCount > 0){
+        cout <<"Response: " << updateCount << " row(s) updated successfully." << endl;
+        unsavedChanges = true;
+    }
     else
         cout << "No matching rows found with " << oldValue << " under the given conditions." << endl;
 }
-

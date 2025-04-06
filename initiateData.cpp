@@ -369,23 +369,10 @@ list<list<string>> splitQueries(const list<string>& tokens) {
     }
     return queries;
 }
-
 // Moves up one level in the directory hierarchy.
 // If already at the root DBMS folder, terminates the program.
-void clearTableInstance(){
-    currentTable = "";
-    // delete currentTableInstance;
-    // currentTableInstance = nullptr;
-    return;
-}
 void move_up(){
     fs::path currentPath = fs::current_path();
-    if(currentTable != ""){
-        cout<< currentPath<< endl;
-        clearTableInstance();
-        cout << "Exited table " << endl;
-        return;
-    }
     if(currentPath.string() == fs_path) {
         cout << "Exiting program." << endl;
         cout<< currentPath<< endl;

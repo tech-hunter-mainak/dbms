@@ -21,5 +21,4 @@
 #define HEAD "head"
 #define LIMIT "limit"
 #define TILDE '~'
-#define VALUES "values"
 #define TO "to"
