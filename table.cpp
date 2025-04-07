@@ -8,22 +8,8 @@ struct Condition {
     string value;
 };
 
-// Parses tokens into condition groups. Each OR group is a vector of Conditions.
-
 // Helper for comparing two values based on an operator.
 bool compareValues(const string &actual, const string &op, const string &expected);
-
-// (Other helper functions such as extractValues, trim, etc. can be declared here or in a utilities header)
-// Helper function to trim spaces.
-// not required already in utils
-// string trim(const string &s) {
-//     size_t start = s.find_first_not_of(" \t");
-//     size_t end = s.find_last_not_of(" \t");
-//     if (start == string::npos || end == string::npos)
-//         return "";
-//     return s.substr(start, end - start + 1);
-// }
-
 
 bool validateValue(const string &value, const string &dataType) {
     if(value == ""){
@@ -40,7 +26,7 @@ bool validateValue(const string &value, const string &dataType) {
         }
         return true;
     }
-    else if (dataType == "BIINT") {
+    else if (dataType == "BIGINT") {
         try {
             size_t idx;
             stoll(value, &idx);
@@ -62,7 +48,7 @@ bool validateValue(const string &value, const string &dataType) {
         }
         return true;
     }
-    else if (dataType == "BIDOUBLE") {
+    else if (dataType == "BIGDOUBLE") {
         try {
             size_t idx;
             stold(value, &idx);
@@ -78,7 +64,6 @@ bool validateValue(const string &value, const string &dataType) {
         return value.size() == 1;
     }
     else if (dataType == "VARCHAR" || dataType == "STRING") {
-        // For VARCHAR or STRING, ensure it's not empty.
         return !value.empty();
     }
     else if (dataType == "DATE") {
@@ -115,22 +100,16 @@ bool validateValue(const string &value, const string &dataType) {
 vector<string> extractValues(const string &command)
 {
     vector<string> values;
-    // size_t start = command.find('(');
-    // size_t end = command.find(')');
-    // if (start == string::npos || end == string::npos || start > end) {
-    //     cout << "Invalid command format. Use: insert values (\"value1\", \"value2\", ...)\n";
-    //     return values;
-    // }
-    // string data = command.substr(start + 1, end - start - 1); // Extract inside ()
     stringstream ss(command);
     string item;
     while (getline(ss, item, ',')) {
         // Trim spaces and remove quotes.
         item.erase(remove(item.begin(), item.end(), '"'), item.end());
+        item.erase(remove(item.begin(), item.end(), '\''), item.end());
         item.erase(0, item.find_first_not_of(" \t"));
         item.erase(item.find_last_not_of(" \t") + 1);
         if(item.empty()){
-            values.push_back("null");
+            values.push_back("");
         } else {
             values.push_back(item);
         }
@@ -318,7 +297,7 @@ public:
                             constraints.push_back(constraint);
                             currentPos = close + 1;
                         }
-                        string allConstraints;
+                        string allConstraints; // ------------------------------------- can be converted here
                         for (size_t i = 0; i < constraints.size(); ++i) {
                             allConstraints += constraints[i];
                             if (i != constraints.size() - 1)
@@ -398,6 +377,7 @@ public:
         for (size_t i = 0; i < values.size(); i++) {
             string colName = headers[i];
             string expectedType = columnMeta[colName].first;
+            string constraints = columnMeta[colName].second;
             if (!validateValue(values[i], expectedType)) {
                 cout << "Mismatch Error: Value \"" << values[i] << "\" is not valid for column \"" 
                      << colName << "\" of type " << expectedType << "." << endl;
