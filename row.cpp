@@ -1,9 +1,3 @@
-// Row.h
-#include <string>
-#include <vector>
-
-using namespace std;
-
 class Row {
 public:
     string id;

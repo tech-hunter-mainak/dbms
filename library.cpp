@@ -14,7 +14,9 @@
 #include <cctype>
 #include <cstdio>
 #include <map>
+#include <unordered_set>
 #include <regex>
+#include <iomanip>
 #include "keywords.cpp"
 using namespace std;
 

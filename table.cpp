@@ -7,12 +7,19 @@ struct Condition {
     string op;     // Operator (e.g., =, >, <, <=, >=, / for not equal)
     string value;
 };
+extern string currentTable;
 
+string trim(const string &s) {
+    size_t start = s.find_first_not_of(" \t"); // Finds the first character that is not a space or tab
+    if(start == string::npos) return "";
+    size_t end = s.find_last_not_of(" \t"); // Finds the last such character that is not a space or tab
+    return s.substr(start, end - start + 1); // ✅ The result includes the character at start_index,❌ But does NOT use an end_index.
+}
 // Helper for comparing two values based on an operator.
 bool compareValues(const string &actual, const string &op, const string &expected);
 
 bool validateValue(const string &value, const string &dataType) {
-    if(value == ""){
+    if(value == "null"){
         return true;
     }
     if (dataType == "INT") {
@@ -114,6 +121,9 @@ vector<string> extractValues(const string &command)
             values.push_back(item);
         }
     }
+    if(item.empty()){
+        values.push_back("");
+    }
     return values;
 }
 
@@ -135,8 +145,7 @@ private:
         ofstream file(filename);
         if (!file.is_open())
         {
-            cout << "Error opening file for commit." << endl;
-            return;
+            throw ("program_error: could not commit changes.");
         }
         
         // Write header row.
@@ -261,8 +270,7 @@ public:
         
         ifstream file(filename);
         if (!file.is_open()) {
-            cout << "Error occured while opening " << filename << " check tablename." << "!\n";
-            return;
+            throw ("program_error: Error occured while opening " + filename + ". Try later. If persists check docs");
         }
         string line;
         bool isHeader = true;
@@ -274,6 +282,9 @@ public:
             while (getline(ss, value, ',')) { // here , is delimitters
                 rowValues.push_back(value);
             }
+            if(value.empty()){
+                rowValues.push_back(""); //////////////////////// -------------- This is were i can add null while retriving ---------------------- ////////////////////////////////////
+            }
             if (isHeader) {
                 // Parse header row to fill headers and columnMeta.
                 // Also detect which column is designated as the PRIMARY_KEY.
@@ -283,8 +294,8 @@ public:
                     size_t firstClose = col.find(')', firstParen);
                     if (firstParen != string::npos && firstClose != string::npos) {
                         // Extract column name and data type.
-                        string colName = trimStr(col.substr(0, firstParen));
-                        string dataType = trimStr(col.substr(firstParen + 1, firstClose - firstParen - 1));
+                        string colName = trim(col.substr(0, firstParen));
+                        string dataType = trim(col.substr(firstParen + 1, firstClose - firstParen - 1));
                         // Collect multiple constraints.
                         vector<string> constraints;
                         size_t currentPos = firstClose + 1;
@@ -293,7 +304,7 @@ public:
                             size_t close = col.find(')', open);
                             if (open == string::npos || close == string::npos)
                                 break;
-                            string constraint = trimStr(col.substr(open + 1, close - open - 1));
+                            string constraint = trim(col.substr(open + 1, close - open - 1));
                             constraints.push_back(constraint);
                             currentPos = close + 1;
                         }
@@ -328,8 +339,8 @@ public:
             } else {
                 if (!rowValues.empty()) {
                     // Ensure that the row has as many values as there are headers.
-                    if (rowValues.size() < headers.size()) {
-                        cout << "Row skipped: insufficient number of columns." << endl;
+                    if (rowValues.size() < headers.size() || rowValues.size() > headers.size()) {
+                        // cout << "Row skipped: insufficient/more number of columns." << endl;
                         continue;
                     }
                     // Extract the primary key value using primaryKeyIndex.
@@ -349,47 +360,117 @@ public:
         }
         file.close();
     }
+    #include <sstream>  // For istringstream
+
+    unordered_set<string> parseConstraints(const string &constraintStr) {
+        unordered_set<string> constraints;
+        istringstream ss(constraintStr);
+        string token;
+        
+        while (getline(ss, token, ',')) {
+            token = trim(token);  // Optional: remove leading/trailing spaces
+            if (!token.empty()) {
+                constraints.insert(token);
+            }
+        }
+    
+        return constraints;
+    }
     void insertRow(const string &command) {
         vector<string> values = extractValues(command);
         if (values.empty()) {
-            cerr << "Syntax Error: values are not entered correctly" << endl;
-            return;
+            throw invalid_argument("INSERT -> missing values/delimitters(,).");
         }
-    
-        // Adjust for auto primary key
-        if (isAutoPrimaryKey) {
-            if (values.size() != headers.size() - 1) {
-                cout << "Logic ERR: Number of values (" << values.size() 
-                     << ") does not match number of user-defined columns (" 
-                     << headers.size() - 1 << ")." << endl;
-                return;
-            }
-            values.insert(values.begin(), to_string(autoIdx++));  // You can also generate this dynamically
-        } else {
-            if (values.size() != headers.size()) {
-                cout << "Logic ERR: Number of values (" << values.size() 
-                     << ") does not match number of columns (" << headers.size() << ")." << endl;
-                return;
-            }
+        if (values.size() > headers.size()) {
+            cerr << "invalid_argument: Number of values (" << values.size() << ") does not match number of columns (" << headers.size() << ")." << endl;
+            throw ("");
         }
-    
-        // Validate values using columnMeta
         for (size_t i = 0; i < values.size(); i++) {
             string colName = headers[i];
             string expectedType = columnMeta[colName].first;
-            string constraints = columnMeta[colName].second;
+            string consStr = columnMeta[colName].second;
+            unordered_set<string> consSet = parseConstraints(consStr);
+        
+            // Check NOT_NULL constraint.
+            if (consSet.count("NOT_NULL")) {
+                if (values[i] == "null" || trim(values[i]).empty()) {
+                    throw ("Constraint Error: Column '" + colName + "' cannot be null.");
+                }
+            }
+        
+            // Check UNIQUE constraint.
+            if (consSet.count("UNIQUE")) {
+                // For the primary key, dataMap keys already hold the value.
+                // For other columns, iterate over all rows.
+                for (const auto &pair : dataMap) {
+                    string existingVal;
+                    if ((int)i == primaryKeyIndex)
+                        existingVal = pair.first;
+                    else {
+                        int idx = (i < (size_t)primaryKeyIndex) ? i : i - 1;
+                        existingVal = (idx < pair.second.values.size()) ? pair.second.values[idx] : "";
+                    }
+                    if (existingVal == values[i]) {
+                        throw runtime_error("Constraint Error: Duplicate value '" + values[i] +
+                                            "' found in UNIQUE column '" + colName + "'.");
+                    }
+                }
+            }
+        
+            // AUTO_INCREMENT is handled for primary key (and optionally other columns) as in section 3.
+            if (consSet.count("AUTO_INCREMENT") || consSet.count("PRIMARY_KEY")) {
+                if (values[i] == "null" || trim(values[i]).empty()) {
+                    int maxVal = 0;
+                    // Iterate through all rows to find the current maximum value.
+                    for (const auto &pair : dataMap) {
+                        string curVal;
+                        if ((int)i == primaryKeyIndex)
+                            curVal = pair.first;
+                        else {
+                            int idx = (i < (size_t)primaryKeyIndex) ? i : i - 1;
+                            curVal = (idx < pair.second.values.size()) ? pair.second.values[idx] : "0";
+                        }
+                        try {
+                            int num = stoi(curVal);
+                            maxVal = max(maxVal, num);
+                        } catch (...) {
+                            // Non-numeric values are ignored.
+                        }
+                    }
+                    values[i] = to_string(maxVal + 1);
+                }
+            }
+        
+            // Also check that the value conforms to the data type.
             if (!validateValue(values[i], expectedType)) {
-                cout << "Mismatch Error: Value \"" << values[i] << "\" is not valid for column \"" 
-                     << colName << "\" of type " << expectedType << "." << endl;
-                return;
+                throw runtime_error("Mismatch Error: Value \"" + values[i] + "\" is not valid for column \"" 
+                                       + colName + "\" of type " + expectedType + ".");
             }
         }
-    
         // Check primary key constraint
-        string id = values[primaryKeyIndex];
-        if (dataMap.find(id) != dataMap.end()) {
-            cerr << "Constraint Error: Primary Key " << id << " already exists." << endl;
+        string pkValue = values[primaryKeyIndex];
+        if (dataMap.find(pkValue) != dataMap.end()) {
+            cerr << "Constraint Error: Primary Key " << pkValue << " already exists." << endl;
             return;
+        } 
+        else {
+            if (pkValue == "null" || trim(pkValue).empty()) {
+                // Auto-increment: iterate over dataMap to find the maximum numeric primary key.
+                int maxVal = 0;
+                for (const auto &pair : dataMap) {
+                    try {
+                        int num = stoi(pair.first);
+                        if (num > maxVal) {
+                            maxVal = num;
+                        }
+                    } catch (...) {
+                        // If conversion fails, ignore (or log error).
+                    }
+                }
+                // Next auto-increment value.
+                pkValue = to_string(maxVal + 1);
+                values[primaryKeyIndex] = pkValue;
+            }
         }
     
         // Prepare values excluding primary key
@@ -400,23 +481,17 @@ public:
             rowValues.push_back(values[i]);
         }
     
-        dataMap[id] = Row(id, rowValues);
-        rowOrder.push_back(id);
+        dataMap[pkValue] = Row(pkValue, rowValues);
+        rowOrder.push_back(pkValue);
         unsavedChanges = true;
     }
-    
     
     void deleteRow(const string &id) {
         auto it = dataMap.find(id);
         if (it != dataMap.end()) {
             dataMap.erase(it);
             rowOrder.erase(remove(rowOrder.begin(), rowOrder.end(), id), rowOrder.end());
-            if (isAutoPrimaryKey) {
-                autoIdx--;
-            }
             // else: silent deletion or custom logic
-        } else {
-            cerr << "Logic ERR: There is no record with primary key value \"" << id << "\"." << endl;
         }
         unsavedChanges = true;
     }
@@ -430,29 +505,38 @@ public:
     }   
     void commitTransaction() {
         writeToFile();
-        cout << "Response: Commit successful." << endl;
         updateTableMetadata();
         unsavedChanges = false;
+        cout << "res: Commit successful." << endl;
     }
     void rollbackTransaction() {
-        retrieveData();
-        cout << "Response: Rollback successful." << endl;
+        if(unsavedChanges){
+            retrieveData();
+        }else{
+            cerr << "WARNING: No changes made to table." << endl;
+        }
+        cout << "res: Rollback successful." << endl;
     }
     void describe() {
         // Print a header for the description.
         cout << "Table: " << currentTable << "\n";
         cout << "-------------------------------------------------\n";
-        cout << setw(20) << left << "Column Name"
+        cout << setw(20) << left << "Column Name" 
              << setw(15) << left << "Data Type"
              << "Constraints" << "\n";
+            /* 
+                left and setw are I/O manipulators in C++ from the <iomanip> header, 
+                used to format how text is printed to the console 
+                (especially when aligning columns nicely, like in tables).
+            */
         cout << "-------------------------------------------------\n";
     
         // Iterate over the headers vector.
         for (const auto &colName : headers) {
             // Get data type and constraints from columnMeta.
             auto metaIt = columnMeta.find(colName);
-            string dataType = (metaIt != columnMeta.end()) ? metaIt->second.first : "";
-            string constraints = (metaIt != columnMeta.end()) ? metaIt->second.second : "";
+            string dataType = (metaIt != columnMeta.end()) ? metaIt->second.first : "*EMPTY";
+            string constraints = (metaIt != columnMeta.end()) ? metaIt->second.second : "*EMPTY";
             cout << setw(20) << left << colName
                  << setw(15) << left << dataType
                  << constraints << "\n";
@@ -483,7 +567,7 @@ public:
             if (upperT == "LIKE") {
                 likeMode = true;
                 if (i + 1 < tokens.size()) {
-                    likePattern = trimStr(tokens[i + 1]);
+                    likePattern = trim(tokens[i + 1]);
                     if (!likePattern.empty() && ((likePattern.front() == '"' && likePattern.back() == '"') ||
                                                  (likePattern.front() == '\'' && likePattern.back() == '\'')))
                         likePattern = likePattern.substr(1, likePattern.size() - 2);
@@ -571,8 +655,8 @@ public:
             auto rowMatchesLike = [&](const vector<string>& cells) -> bool {
                 for (size_t i = 0; i < nCols; i++) {
                     // Optionally, skip auto-generated primary key column.
-                    if (isAutoPrimaryKey && i == 0)
-                        continue;
+                    // if (isAutoPrimaryKey && i == 0)
+                    //     continue;
                     string dt = columnMeta[headers[i]].first;
                     if (dt == "VARCHAR" || dt == "CHAR" || dt == "STRING") {
                         string cell = cells[i];
@@ -588,17 +672,23 @@ public:
             auto rowMatchesWhere = [&](const vector<string>& cells) -> bool {
                 // Reconstruct a Row object from cells.
                 Row row;
-                if (isAutoPrimaryKey) {
-                    row.id = cells[0];
-                    for (size_t i = 1; i < cells.size(); i++)
-                        row.values.push_back(cells[i]);
-                } else {
-                    row.id = cells[primaryKeyIndex];
-                    for (size_t i = 0; i < cells.size(); i++) {
-                        if ((int)i == primaryKeyIndex)
-                            continue;
-                        row.values.push_back(cells[i]);
-                    }
+                // if (isAutoPrimaryKey) {
+                //     row.id = cells[0];
+                //     for (size_t i = 1; i < cells.size(); i++)
+                //         row.values.push_back(cells[i]);
+                // } else {
+                //     row.id = cells[primaryKeyIndex];
+                //     for (size_t i = 0; i < cells.size(); i++) {
+                //         if ((int)i == primaryKeyIndex)
+                //             continue;
+                //         row.values.push_back(cells[i]);
+                //     }
+                // }
+                row.id = cells[primaryKeyIndex];
+                for (size_t i = 0; i < cells.size(); i++) {
+                    if ((int)i == primaryKeyIndex)
+                        continue;
+                    row.values.push_back(cells[i]);
                 }
                 return evaluateAdvancedConditions(row, parseAdvancedConditions(condTokens));
             };
@@ -639,7 +729,7 @@ public:
                     break;
                 }
                 // Trim and remove surrounding quotes.
-                string colName = trimStr(tokens[i]);
+                string colName = trim(tokens[i]);
                 if (!colName.empty() && ((colName.front() == '"' && colName.back() == '"') ||
                                          (colName.front() == '\'' && colName.back() == '\'')))
                     colName = colName.substr(1, colName.size() - 2);
@@ -661,7 +751,7 @@ public:
                 if (upperClause == "LIKE") {
                     likeMode = true;
                     if (!extraTokens.empty()) {
-                        likePattern = trimStr(extraTokens[0]);
+                        likePattern = trim(extraTokens[0]);
                         if (!likePattern.empty() &&
                            ((likePattern.front() == '"' && likePattern.back() == '"') ||
                             (likePattern.front() == '\'' && likePattern.back() == '\'')))
@@ -786,17 +876,14 @@ public:
 };
 bool Table::hasRow(const string &id) {
     return dataMap.find(id) != dataMap.end();
-    unsavedChanges = true;
 }
 
 bool Table::hasColumn(const string &colName) {
-    // Check if the column exists in the headers.
     for (const auto &header : headers) {
         if (header == colName)
             return true;
     }
     return false;
-    unsavedChanges = true;
 }
 void Table::deleteColumn(const string &colName) {
     // Find the column index.
@@ -807,13 +894,8 @@ void Table::deleteColumn(const string &colName) {
             break;
         }
     }
-    if (colIndex == -1) {
-        cout << "Logic ERR: Column \"" << colName << "\" not found." << endl;
-        return;
-    }
     if (colIndex == primaryKeyIndex) {  // Prevent deletion of primary key.
-        cerr << "Sys ERR: Primary key column cannot be deleted." << endl;
-        return;
+        throw invalid_argument("Primary key column cannot be deleted.");
     }
     // Remove from headers and metadata.
     headers.erase(headers.begin() + colIndex);
@@ -823,28 +905,28 @@ void Table::deleteColumn(const string &colName) {
         if (pair.second.values.size() >= colIndex)
             pair.second.values.erase(pair.second.values.begin() + (colIndex - 1));
     }
-    cout << "Response: Column \"" << colName << "\" deleted successfully." << endl;
+    cout << "res: Column \"" << colName << "\" deleted successfully." << endl;
     unsavedChanges = true;
 }
 void Table::deleteRowsByAdvancedConditions(const vector<vector<Condition>> &groups) {
     vector<string> rowsToDelete;
     // --- Step 1: Validate column names before doing anything ---
-    for (const auto &group : groups) {
-        for (const auto &cond : group) {
-            bool columnExists = false;
-            for (const auto &header : headers) {
-                if (header == cond.column) {
-                    columnExists = true;
-                    break;
-                }
-            }
-            if (!columnExists) {
-                cerr << "Logic Error: Column \"" + cond.column + "\" not found." << endl;
-                cout <<"Response: " << rowsToDelete.size() << " row(s) affected." << endl;
-                return;
-            }
-        }
-    }
+    // for (const auto &group : groups) {
+    //     for (const auto &cond : group) {
+    //         bool columnExists = false;
+    //         for (const auto &header : headers) {
+    //             if (header == cond.column) {
+    //                 columnExists = true;
+    //                 break;
+    //             }
+    //         }
+    //         if (!columnExists) {
+    //             cerr << "Logic Error: Column \"" + cond.column + "\" not found." << endl;
+    //             cout <<"Response: " << rowsToDelete.size() << " row(s) affected." << endl;
+    //             return;
+    //         }
+    //     }
+    // }
     // Iterate over each row.
     for (const auto &id : rowOrder) {
         auto it = dataMap.find(id);
@@ -857,7 +939,7 @@ void Table::deleteRowsByAdvancedConditions(const vector<vector<Condition>> &grou
         dataMap.erase(id);
         rowOrder.erase(remove(rowOrder.begin(), rowOrder.end(), id), rowOrder.end());
     }
-    cout <<"Response: " << rowsToDelete.size() << " row(s) affected." << endl;
+    cout <<"res: " << rowsToDelete.size() << " row(s) affected." << endl;
     unsavedChanges = true;
 }
 bool Table::evaluateAdvancedConditions(const Row &row, const vector<vector<Condition>> &groups) {
@@ -928,7 +1010,7 @@ vector<vector<Condition>> Table::parseAdvancedConditions(const vector<string>& t
     vector<Condition> currentGroup;
 
     auto trimQuotes = [](const string &s) -> string {
-        string trimmed = trimStr(s);
+        string trimmed = trim(s);
         if (!trimmed.empty() && ((trimmed.front() == '"' && trimmed.back() == '"') || (trimmed.front() == '\'' && trimmed.back() == '\'')))
             trimmed = trimmed.substr(1, trimmed.size() - 2);
         return trimmed;
@@ -946,13 +1028,16 @@ vector<vector<Condition>> Table::parseAdvancedConditions(const vector<string>& t
             bool columnExists = false;
             for (const auto &header : headers) {
                 if (header == cond.column) {
+                    string dataType = columnMeta[cond.column].first;
+                    if( cond.value == "null" || !validateValue(cond.value,dataType)){
+                        throw ("mismatch_error: Value "+ cond.value +" is not valid for column " + cond.column + " of type " + dataType + ".");
+                    }
                     columnExists = true;
                     break;
                 }
             }
             if (!columnExists) {
-                cerr << "Logic ERR: Column \"" << cond.column << "\" does not exist in table." << endl;
-                return {}; // Invalid column, stop parsing
+                throw invalid_argument("Column \"" + cond.column + "\" does not exist in table.");
             }
 
             currentGroup.push_back(cond);
@@ -966,14 +1051,11 @@ vector<vector<Condition>> Table::parseAdvancedConditions(const vector<string>& t
                 i++;
             }
         } else {
-            cerr << "Syntax Error: Not enough tokens to form a condition." << endl;
-            return {};
+            throw invalid_argument("Not enough arguments to form a condition.");
         }
     }
-
     if (!currentGroup.empty())
         groups.push_back(currentGroup);
-
     return groups;
 }
 
@@ -981,20 +1063,22 @@ vector<vector<Condition>> Table::parseAdvancedConditions(const vector<string>& t
 void Table::updateValueByCondition(const string &colName, const string &oldValue, const string &newValue,const vector<vector<Condition>> &conditionGroups) {
     int colIndex = -1;
     for (int i = 0; i < headers.size(); i++) {
-        cout<<headers[i]<<endl;
         if (headers[i] == colName) {
+            string dataType = columnMeta[colName].first;
+            if( oldValue == "null" || !validateValue(oldValue,dataType) ){
+                throw ("mismatch_error: Value "+ oldValue +" is not valid for column " + colName + " of type " + dataType + ".");
+            } else if (newValue == "null" || !validateValue(newValue,dataType) ){
+                throw ("mismatch_error: Value "+ newValue +" is not valid for column " + colName + " of type " + dataType + ".");
+            }
             colIndex = i;
             break;
         }
     }
-    cout<<colIndex<<endl;
     if (colIndex == -1) {
-        cout << "Column \"" << colName << "\" not found." << endl;
-        return;
+        throw invalid_argument("Column: \"" + colName + "\" not found.");
     }
     if (colIndex == primaryKeyIndex && dataMap.find(newValue) != dataMap.end()) { 
-        cout << "Constraint Error: Primary Key " << newValue << " already exists. Skipping Updation." << endl;
-        return; 
+        throw ("Constraint Error: Primary Key " + newValue + " already exists. Skipping Updation.");
     }
     int updateCount = 0;
     for (auto &pair : dataMap) {
@@ -1008,11 +1092,11 @@ void Table::updateValueByCondition(const string &colName, const string &oldValue
         }
     }
     if (updateCount > 0){
-        cout <<"Response: " << updateCount << " row(s) updated successfully." << endl;
+        cout <<"res : " << updateCount << " row(s) updated successfully." << endl;
         unsavedChanges = true;
     }   
     else
-        cout << "Logic ERR: No matching rows found with " << colName << " = " << oldValue << " under the given conditions." << endl;
+        throw invalid_argument("Logic ERR: No matching rows found with " + colName + " = " + oldValue + " under the given conditions." );
 
 }
 

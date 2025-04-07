@@ -10,8 +10,6 @@ extern bool exitProgram;  // Declaration of the global variable
 // Global pointer to the current Table instance.
 Table* currentTableInstance = nullptr;
 void exitTable() {
-    if (!currentTableInstance)
-        return;
     // If there are unsaved changes, ask the user whether to save.
     if (currentTableInstance->unsavedChanges) {
         cout << "You have unsaved changes. Do you want to save them? (y/n): ";
@@ -22,13 +20,12 @@ void exitTable() {
         if (!answer.empty() && answer[0] == 'y') {
             currentTableInstance->commitTransaction();
         } else {
-            cout << "Response: Discarding changes." << endl;
+            cout << "res: Discarding changes." << endl;
         }
     }
     delete currentTableInstance;
     currentTableInstance = nullptr;
     currentTable = "";      // Clear current table context.
-    cout << "Response: Exited table" << endl;
 }
 class Parser {
 private:
@@ -36,36 +33,23 @@ private:
     // Helper functions for each command:
     void processInit() {
         // INIT <database_name>
-        if (queryList.empty()) {
-            cout << "Syntax Error: INIT -> Database name expected." << endl;
-            return ;
-        }
         string dbName = getCommand();
         checkExtraTokens();
         init_database(dbName);
     }
     void processMake() {
         // MAKE <table_name> [ ( <column_definitions> ) ]
-        if(currentDatabase.empty()){
-            cerr <<"Sys ERR: Enter a database to make a table." << endl;
-            return ;
-        }
-        if(!currentTable.empty()){
-            cerr <<"Sys ERR: MAKE cannot be used within a table." << endl;
-            queryList.clear();
-            return ;
-        }
-        if (queryList.empty()) {
-            cout << "Syntax Error: MAKE -> No arguments provided." << endl;
-            return;
+        if(currentDatabase.empty() || !currentTable.empty()){
+            throw logic_error("MAKE -> not used before entering a database / within a table .");
         }
         string tableName = getCommand();    
         // Set the global currentTable to the table name.
-        currentTable = tableName;
+        
         // Call the free function make_table with only the header definitions.
-        make_table(queryList);
+        make_table(queryList, tableName);
         // After creation, currentTable should be set by make_table.
         // Create a new Table instance to manage further operations.
+        currentTable = tableName;
         if (!currentTable.empty()) {
             // if (currentTableInstance) {
             //     delete currentTableInstance;
@@ -77,57 +61,41 @@ private:
     }    
     void processErase() {
         // ERASE <database or table name>
-        if (queryList.empty()) {
-            if (currentDatabase.empty())
-                cout << "Syntax Error: ERASE -> Database name expected." << endl;
-            else
-                cout << "Syntax Error: ERASE -> Table name expected." << endl;
-            return;
-        }
         string name = getCommand();
-        if(checkExtraTokens()) return;
+        checkExtraTokens();
         // At root level (no database selected): erase a database.
         if (currentDatabase.empty()) {
-            if (eraseDatabase(name)) {
-                if (currentDatabase == name)
-                    currentDatabase = "";
-            }
+            eraseDatabase(name);
+            if (currentDatabase == name)
+                currentDatabase = "";
         }
         // Inside a database: erase a table.
         else {
-            if (eraseTable(name)) {
-                if (currentTable == name)
-                    currentTable = "";
-                if (currentTableInstance) { //////////////    TABLE INSTANCE IS HERE
-                    delete currentTableInstance;
-                    currentTableInstance = nullptr;
-                }
+            eraseTable(name);
+            if (currentTable == name)
+                currentTable = "";
+            if (currentTableInstance) { //////////////    TABLE INSTANCE IS HERE
+                delete currentTableInstance;
+                currentTableInstance = nullptr;
             }
         }
     }
     void processClean() {
-        if (currentTable == "") {
-            cout << "Sys Err: Please choose a table before cleaning." << endl;
+        if (currentTable.empty()) {
+            throw logic_error("Please choose a table before cleaning.");
         } else {
-            if(checkExtraTokens()) return;
+            checkExtraTokens();
             if (currentTableInstance)
                 currentTableInstance->cleanTable();
-            else{   
-                cout << "Program Error: This shouldn't happen contact dev." << endl;
-                exitProgram = true;
-            }  
         }
     }
 
     void processDel() {
-        if(currentTable.empty() && !currentTableInstance){
-            cerr << "Sys ERR: Please choose a table before deleting." << endl;
-            queryList.clear();
-            return ;
+        if(currentTable.empty()){
+            throw logic_error("Please choose a table before cleaning.");
         }
         if (queryList.empty()) {
-            cout << "Syntax Error: DEL -> No arguments provided." << endl;
-            return;
+            throw "syntax_error: missing commands.";
         }
         // Check if deletion is based on conditions.
         if (queryList.front() == WHERE) {
@@ -138,7 +106,6 @@ private:
             queryList.clear();
             // Call the advanced condition parser.
             vector<vector<Condition>> conditionGroups = currentTableInstance->parseAdvancedConditions(condTokens);
-            if(conditionGroups.empty()) return;
             if (currentTableInstance)
                 currentTableInstance->deleteRowsByAdvancedConditions(conditionGroups);
         }
@@ -148,15 +115,17 @@ private:
             while (!queryList.empty()) {
                 string token = getCommand();
                 // If the token contains commas, split it.
-                size_t pos = 0;
-                while ((pos = token.find(',')) != string::npos) {
-                    string part = token.substr(0, pos);
-                    if (!part.empty())
-                        items.push_back(part);
-                    token = token.substr(pos + 1);
-                }
+                // size_t pos = 0;
+                // while ((pos = token.find(',')) != string::npos) {
+                //     string part = token.substr(0, pos);
+                //     if (!part.empty())
+                //         items.push_back(part);
+                //     token = token.substr(pos + 1);
+                // }
                 if (!token.empty())
                     items.push_back(token);
+                else
+                    throw invalid_argument("Id (or) Column Name cannot be empty.");
             }
             // Process each item: trim whitespace and remove surrounding quotes.
             for (auto &item : items) {
@@ -173,16 +142,15 @@ private:
                 else if (currentTableInstance->hasColumn(item))
                     currentTableInstance->deleteColumn(item);
                 else
-                    cout << "Logic Error: Neither a row with primaryKey nor a column named \"" << item << "\" exists." << endl;
+                    throw invalid_argument("No record matches a Id (or) Column Name with value " + item + ".");
             }
         }
     }
     void processDescribe(){
         if (currentTable.empty()) {
-            cout << "Sys ERR: DESCRIBE -> can only be used in table" << endl;
-            return ;
+            throw logic_error("DESCRIBE -> can only be used in table");
         }
-        if(checkExtraTokens()) return;
+        checkExtraTokens();
         if (currentTableInstance)
             currentTableInstance->describe();
     }
@@ -191,13 +159,7 @@ private:
             // Syntax 1: CHANGE <column_name> <old_value> TO <new_value> Where <condition>
             // Syntax 2: CHANGE <old_value> TO <new_value> Where <condition>
             if (!currentTableInstance) {
-                cout << "Sys ERR: No table selected for update." << endl;
-                queryList.clear();
-                return;
-            }
-            if (queryList.empty()) {
-                cerr << "Syntax Error: CHANGE -> no arguments provided." << endl;
-                return;
+                throw logic_error("CHANGE -> No table selected.");
             }
             
             bool hasColumnSpecified = false;
@@ -209,10 +171,6 @@ private:
                 oldValue = firstToken;
                 // Remove "TO"
                 queryList.pop_front();
-                if (queryList.empty()) {
-                    cerr << "Syntax Error: CHANGE -> newValue is missing." << endl;
-                    return;
-                }
                 newValue = getCommand();
             } else {
                 // Otherwise, it's Syntax 1 (with column name).
@@ -222,22 +180,12 @@ private:
                 if (!colName.empty() && ((colName.front() == '"' && colName.back() == '"') || (colName.front() == '\'' && colName.back() == '\''))) {
                     colName = colName.substr(1, colName.size() - 2);
                 }
-                if (queryList.empty()) {
-                    cerr << "Syntax Error: CHANGE -> Missing old value." << endl;
-                    return;
-                }
                 oldValue = getCommand();
                 if (queryList.empty() || queryList.front() != TO) {
-                    cerr << "Syntax Error: CHANGE -> missing arguments" << endl;
-                    queryList.clear();
-                    return;
+                    throw ("syntax_error: CHANGE -> missing/unexpected command TO.");
                 }
                 // Remove "TO"
                 queryList.pop_front();
-                if (queryList.empty()) {
-                    cerr << "Syntax Error: CHANGE -> Missing new value." << endl;
-                    return;
-                }
                 newValue = getCommand();
             }
             
@@ -250,10 +198,8 @@ private:
                     vector<string> condTokens(queryList.begin(), queryList.end());
                     queryList.clear();
                     conditionGroups = currentTableInstance->parseAdvancedConditions(condTokens);
-                    if(conditionGroups.empty()) return;
                 } else {
-                    cerr << "Syntax error: unexpected token(s) after new value in CHANGE command" << endl;
-                    return;
+                    throw "syntax_error: unexpected command \""+ token + ".";
                 }
             }
             // Call the appropriate Table method.
@@ -265,15 +211,8 @@ private:
 
     void processInsert() {
         string token = getCommand();
-        bool err = false;
-        if (queryList.empty()) {
-            cerr << "Syntax Error: INSERT -> no arguments provided"<< endl;
-            return;
-        }
         if (!currentTableInstance) {
-            cout << "Sys ERR: INSERT -> table not selected." << endl;
-            queryList.clear();
-            return;
+            throw  logic_error("INSERT -> table not selected.");
         }
         while (!queryList.empty()) {
             string valuesToken = getCommand();
@@ -282,59 +221,42 @@ private:
             if (currentTableInstance){
                 currentTableInstance->insertRow(valuesToken);
             }
-            if(!err){
-                cout << "Response: Data inserted successfully into table."<< endl;
-            }
+            cout << "res: Data sucessfullt inserted."<< endl;
         }
     }
 
     void processEnter() {
         // ENTER <database_name>
         if(!currentDatabase.empty() || !currentTable.empty()){
-            cerr<<"Sys ERR: Enter -> cannot be use in table/database."<< endl;
-            queryList.clear();
-        }
-        if (queryList.empty()) {
-            cout << "Syntax Error: ENTER -> Database name expected." << endl;
-            return;
+            throw logic_error("Enter -> cannot be used in table/database.");
         }
         string db_name = getCommand();
-        if(checkExtraTokens()) return;
+        checkExtraTokens();
         try {
             if (fs::exists(db_name) && fs::is_directory(db_name)) {
                 fs::current_path(db_name);
                 currentDatabase = db_name;
-                // currentTable = "";
-                // if (currentTableInstance) { // here istance of currentTableInstance is deleted.
-                //     delete currentTableInstance;
-                //     currentTableInstance = nullptr;
-                // }
+                currentTable = "";
+                if (currentTableInstance) { // here istance of currentTableInstance is deleted. if somehow it is still there
+                    delete currentTableInstance;
+                    currentTableInstance = nullptr;
+                }
             } else {
-                cout << "Logic ERR: Database \"" << db_name << "\" does not exist. Create it using INIT command." << endl;
+                throw logic_error("Database \"" + db_name + "\" does not exist.");
             }
         } catch (const fs::filesystem_error &e) {
-            cerr << "Program Error: This shouldn't happen contact dev.\n" << e.what() << endl;
+            string errorMessage = "program_error: " + string(e.what()) + ".";
+            throw errorMessage;
         }
     }
 
     void processChoose() {
         // CHOOSE <table_name>
-        if (currentDatabase.empty()) {
-            cout << "Sys ERR: Enter a database to use CHOOSE" << endl;
-            queryList.clear();
-            return;
-        }
-        if (!currentTable.empty()) {
-            cout << "Sys ERR: CHOOSE -> cannot be used within a table." << endl;
-            queryList.clear();
-            return;
-        }
-        if (queryList.empty()) {
-            cout << "Syntax Error: CHOOSE -> Table name expected." << endl;
-            return;
+        if (currentDatabase.empty() || !currentTable.empty()) {
+            throw logic_error("CHOOSE -> cannot be used in table/outside a database.");
         }
         string table_name = getCommand();
-        if(checkExtraTokens()) return;
+        checkExtraTokens();
         try {
             string filename = table_name + ".csv";
             ifstream file(filename);
@@ -347,29 +269,30 @@ private:
                 // }
                 currentTableInstance = new Table(table_name);
             } else {
-                cerr << "Table \"" << table_name << "\" does not exist.Create it using MAKE command." << endl;
+                throw logic_error("table \"" + table_name + "\" does not exist.");
             }
         } catch (const fs::filesystem_error &e) {
-            cerr << "Program Error: this shouldn't happen contact dev.\n" << e.what() << endl;
+            string errorMessage = "program_error: " + string(e.what()) + ".";
+            throw errorMessage;
         }
     }
 
     void processClose() {
-        if(checkExtraTokens()) return;
+        checkExtraTokens();
         if (currentTableInstance) {
             exitTable();
         }
-        cout << "Response: Program Exited" << endl; // make sure to change the project name
+        cout << "EXIT(0)" << endl; // make sure to change the project name
         exitProgram = true;
     }
 
     void processExit() {
-        if(checkExtraTokens()) return;
+        checkExtraTokens();
         move_up();
     }
 
     void processList() {
-        if(checkExtraTokens()) return;
+        checkExtraTokens();
         if (currentDatabase == "" && currentTable == "") {
             listDatabases();
         }
@@ -377,10 +300,10 @@ private:
             listTables();
         }
         else if (currentDatabase != "" && currentTable != "") {
-            cerr << "Sys ERR: LIST -> is not available in table." << endl;
-            queryList.clear();
+            throw logic_error("LIST -> not available in table.");
         }
     }
+    
 
     void processShow() {
         string params;
@@ -397,104 +320,113 @@ private:
     }
 
     void processRollback() {
-        if (currentTable.empty()){
-            cout << "Sys ERR: No table selected for transaction rollback." << endl;
-            return;
-        }
         if (currentTableInstance)
             currentTableInstance->rollbackTransaction();
+        else
+            throw logic_error("No table selected for transaction ROLLBACK.");
     }
 
     void processCommit() {
-        if (currentTable.empty()){
-            cout << "Sys ERR: No table selected for transaction commit." << endl;
-            return;
-        }
         if (currentTableInstance)
             currentTableInstance->commitTransaction();
         else
-            cout << "Sys ERR: No table selected for transaction commit." << endl;
+            throw logic_error("No table selected for transaction COMMIT.");
     }
 
 public:
     // Constructor: simply copy the tokens.
     Parser(const list<string> &tokens) : queryList(tokens) {}
     string getCommand(){
+        if (queryList.empty()) {
+            throw "syntax_error: missing commands.";
+        }
         string cmd = queryList.front();
         queryList.pop_front();
         return cmd;
     }
-    bool checkExtraTokens(){
+    void checkExtraTokens(){
         if (!queryList.empty()) {
-            cout << "Syntax Error: unexpected token \""<< queryList.front() << "\"."<< endl;
-            queryList.clear();
-            return true;
+            throw ("syntax_error: unexpected command \""+ queryList.front()+"\".");
         }
-        return false;
     }
     // The parse method processes all tokens.
     void parse() {
         while (!queryList.empty()) {
-            string query = getCommand();
-            if (query == INIT) {
-                processInit();
-            }
-            else if (query == MAKE) {
-                processMake();
-            }
-            else if (query == ERASE) {
-                processErase();
-            }
-            else if (query == CLEAN) {
-                processClean();
-            }
-            else if (query == DEL) {
-                processDel();
-            }
-            else if (query == CHANGE) {
-                processChange();
-            }
-            else if (query == INSERT) {
-                processInsert();
-            }
-            else if (query == ENTER) {
-                processEnter();
-            }
-            else if (query == CHOOSE) {
-                processChoose();
-            }
-            else if (query == CLOSE) {
-                processClose();
-            }
-            else if (query == EXIT) {
-                if(!currentTable.empty()){
-                    exitTable();
-                } else {
-                    processExit();
-                }  
-            }
-            else if (query == DESCRIBE) {
-                processDescribe();
-            }
-            
-            else if (query == LIST) {
-                processList();
-            }
-            else if (query == SHOW) {
-                processShow();
-            }
-            else if (query == ROLLBACK) {
-                processRollback();
-            }
-            else if (query == COMMIT) {
-                processCommit();
-            }
-            else {
-                cout << "Unknown command: " << query << endl;
+            try {
+                string query = getCommand();
+    
+                if (query == INIT) {
+                    processInit();
+                }
+                else if (query == MAKE) {
+                    processMake();
+                }
+                else if (query == ERASE) {
+                    processErase();
+                }
+                else if (query == CLEAN) {
+                    processClean();
+                }
+                else if (query == DEL) {
+                    processDel();
+                }
+                else if (query == CHANGE) {
+                    processChange();
+                }
+                else if (query == INSERT) {
+                    processInsert();
+                }
+                else if (query == ENTER) {
+                    processEnter();
+                }
+                else if (query == CHOOSE) {
+                    processChoose();
+                }
+                else if (query == CLOSE) {
+                    processClose();
+                }
+                else if (query == EXIT) {
+                    if (!currentTable.empty()) {
+                        exitTable();
+                    } else {
+                        processExit();
+                    }
+                }
+                else if (query == DESCRIBE) {
+                    processDescribe();
+                }
+                else if (query == LIST) {
+                    processList();
+                }
+                else if (query == SHOW) {
+                    processShow();
+                }
+                else if (query == ROLLBACK) {
+                    processRollback();
+                }
+                else if (query == COMMIT) {
+                    processCommit();
+                }
+                else {
+                    throw ("syntax_error: unknown query " + query );
+                }
+            } catch (const std::invalid_argument &e) {
+                cerr << "Invalid Argument Error: " << e.what() << endl;
+    
+            } catch (const std::logic_error &e) {
+                cerr << "Logic Error: " << e.what() << endl;
+    
+            } catch (const string &msg) {
+                cerr << "Error: " << msg << endl;
+    
+            } catch (const char* msg) {
+                cerr << "Error: " << msg << endl;
+    
+            } catch (...) {
+                cerr << "Unknown Error occurred while processing query." << endl;
             }
         }
     }
-    friend void checkExtraTokens();
     ~Parser() {
         // Destructor: clean up if needed.
     }

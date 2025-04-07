@@ -5,12 +5,11 @@ extern string fs_path;         // Root DBMS folder path
 extern string currentDatabase; // Currently selected database name (empty if none)
 extern string currentTable;    // Currently selected table name (empty if none)
 extern bool exitProgram;
-extern bool isAutoPrimaryKey;
-extern int autoIdx;
 //--------------------------------------------------------------------------------
 // Database & Table Creation / Erasure Functions
 //--------------------------------------------------------------------------------
 
+string trimStr(const string &s);
 /* DONE */
 // Creates a new database directory if it does not exist.
 bool isValidDatabaseName(const string& name) {
@@ -19,24 +18,20 @@ bool isValidDatabaseName(const string& name) {
     return regex_match(name, validPattern);
 }
 
-bool init_database(string name) {
+void init_database(string name) {
     if (!isValidDatabaseName(name)) {
-        cerr << "Invalid database name! Only alphabets, numbers, and underscores are allowed." << endl;
-        return false;
+        throw logic_error("Invalid database name! Only alphabets, numbers, and underscores are allowed.");
     }
     if (!fs::exists(name)) {
         if (fs::create_directory(name)) {
-            cout << "Database created: " << name << endl;
-            cout << "To access it, use: ENTER " << name << endl;
+            // cout << "Database created: " << name << endl;
+            // cout << "To access it, use: ENTER " << name << endl;
         } else {
-            cerr << "Failed to initiate database! Try using a different name." << endl;
-            return false;
+            throw ("program_error: Failed to initiate database.");
         }
     } else {
-        cout << "Database already exists! Use ENTER " << name << " to access it." << endl;
-        return false;
+        throw  logic_error("Database already exists! Use ENTER " + name + " to access it.");
     }
-    return true;
 }
 
 // Helper function: trim whitespace from both ends of a string.
@@ -63,38 +58,32 @@ bool isValidDataType(const string &dataType) {
 bool isValidConstraint(const string &constraint) {
     string upperCons = constraint;
     transform(upperCons.begin(), upperCons.end(), upperCons.begin(), ::toupper);
-    if(upperCons == "PRIMARY_KEY") return true;
-    if(upperCons == "NOT_NULL") return true;
+    if(upperCons == "PRIMARY_KEY" || upperCons == "NOT_NULL" || upperCons == "UNIQUE" || upperCons == "AUTO_INCREMENT") return true;
     return false;
 }
 // Erases a database directory (and all its contents) if it exists.
-bool eraseDatabase(const string &dbName) {
+void eraseDatabase(const string &dbName) {
     if (fs::exists(dbName) && fs::is_directory(dbName)) {
         fs::remove_all(dbName);
         cout << "Database erased: " << fs::absolute(dbName).string() << endl;
-        return true;
     } else {
-        cout << "Database not found: " << dbName << endl;
-        return false;
+        throw logic_error("Database not found: " + dbName);
     }
 }
 
 // Erases a table by deleting its CSV file.
-bool eraseTable(const string &tableName) {
+void eraseTable(const string &tableName) {
     string filename = tableName + ".csv";
     ifstream file(filename);
     if (file.good()) {
         file.close();
         if (remove(filename.c_str()) == 0) {
-            cout<<"Table is erased permanently."<<endl;
-            return true;
+            cout<<"res: Table erased permanently."<<endl;
         } else {
-            cout << "Error erasing table: " << tableName << endl;
-            return false;
+            throw ("program_error: could not erase " + tableName + '.');
         }
     } else {
-        cout << "Table not found: " << tableName << endl;
-        return false;
+        throw logic_error("Table not found: " + tableName);
     }
 }
 bool eraseTable(const string &tableName, int) { // function overloading 
@@ -135,62 +124,28 @@ vector<string> tokenizeColumnDef(const string &colDef) {
         tokens.push_back(trimStr(current));
     return tokens;
 }
-
-
-/////////// THIS FUNCTION IS NOT NEEDED tokenizeColumnDef(colDef); above function does all the necessary things)
-// New helper: Parse a single column definition.
-// If the definition contains quoted text, the text within the first pair of quotes is taken as the column name.
-// The remainder of the definition is then tokenized (by spaces) for datatype and constraints.
-// vector<string> parseColumnDefinition(const string &colDef) {
-//     size_t firstQuote = colDef.find('"');
-//     if (firstQuote != string::npos) {
-//         size_t secondQuote = colDef.find('"', firstQuote + 1);
-//         if (secondQuote != string::npos) {
-//             // Extract column name (including quotes).
-//             string colName = colDef.substr(firstQuote, secondQuote - firstQuote + 1);
-//             // Remove the quotes for the final column name.
-//             colName = colName.substr(1, colName.size() - 2);
-//             // Get the remainder of the string after the second quote.
-//             string remainder = colDef.substr(secondQuote + 1);
-//             vector<string> tokens;
-//             tokens.push_back(trimStr(colName));  // Use the quoted text as column name.
-//             // Tokenize the remainder by spaces.
-//             istringstream iss(remainder);
-//             string token;
-//             while (iss >> token) {
-//                 tokens.push_back(token);
-//             }
-//             return tokens;
-//         }
-        
-//     }
-//     // If no quotes are found, use the normal tokenization.
-//     return tokenizeColumnDef(colDef);
-// }
-
 // Creates a new table by writing a CSV file with custom header definitions.
 // The header is constructed by splitting the user-provided header string by commas,
 // then processing each column definition using parseColumnDefinition().
 // For each column, the header is written as: 
 //    columnName(DATATYPE)(CONSTRAINT1)(CONSTRAINT2)...
 // Every column must have at least a column name and a datatype.
-void make_table(list<string> &queryList) {
+void make_table(list<string> &queryList, const string tableName) {
     string headersToken = "";
     headersToken = queryList.front();
     queryList.pop_front();
     headersToken = trimStr(headersToken);
 
-    string filename = currentTable + ".csv";
+    string filename = tableName + ".csv";
     ifstream file(filename); // make this file absolute if needed //////////////////////
     if (file.good()) {
-        cerr << "Table already exists with name " << filename << endl;  //////// make this terminate the program or clear query because it is entering the table 
-        return;
+        throw logic_error("Table already exists with name " + filename);
     }
     file.close();
 
     ofstream newTable(filename);
     if (!newTable.is_open()) {
-        cerr << "Failed to create table file!" << endl;
+        throw ("program_error: Failed to create table file!");
         return;
     }
 
@@ -216,72 +171,55 @@ void make_table(list<string> &queryList) {
         }
 
         vector<string> formattedCols;
+        
         int index = 0;
         for (const auto &def : colDefs) {
             vector<string> tokens = tokenizeColumnDef(def);
             if (tokens.size() < 2) {
-                cout << "Invalid column definition (must have column name and datatype): " << def << endl;
-                return;
+                throw invalid_argument("Column must have a name and datatype: \"" + def + "\".");
             }
-
             string colName = tokens[0];
             string dataType = tokens[1];
             transform(dataType.begin(), dataType.end(), dataType.begin(), ::toupper);
-
             if (!isValidDataType(dataType)) {
-                cout << "Invalid data type for column '" << colName << "': " << dataType << endl;
-                string path = fs::current_path().string();
-                eraseTable(path + "/" + currentTable, 0);
-                currentTable = "";
-                return;
+                throw invalid_argument("Invalid data type for column \"" + colName + "\" : " + dataType);
             }
-
             string constraints = "";
             bool isPrimaryKey = false;
+            unordered_set<string> consSet;
             for (size_t i = 2; i < tokens.size(); i++) {
                 string cons = tokens[i];
                 transform(cons.begin(), cons.end(), cons.begin(), ::toupper);
                 if (!isValidConstraint(cons)) {
-                    cout << "Invalid constraint '" << cons << "' for column '" << colName << "'." << endl;
-                    string path = fs::current_path().string();
-                    eraseTable(path + "/" + currentTable, 0);
-                    currentTable = "";
-                    return;
+                    throw invalid_argument("Invalid data type for column \"" + colName + "\" : " + dataType);
                 }
 
                 if (cons == "PRIMARY_KEY") {
                     if (primaryKeyIndex != -1) {
-                        cerr << "Error: Multiple PRIMARY_KEY definitions found. Only one PRIMARY_KEY is allowed." << endl;
-                        string path = fs::current_path().string();
-                        eraseTable(path + "/" + currentTable, 0);
-                        currentTable = "";
-                        return;
+                        throw invalid_argument("Multiple PRIMARY_KEY definitions found. Only one PRIMARY_KEY is allowed.");
                     }
-                    if (dataType != "INT") {
-                        cerr << "Error: Only INT columns can be defined as PRIMARY_KEY. Column '" << colName << "' has type '" << dataType << "'." << endl;
-                        string path = fs::current_path().string();
-                        eraseTable(path + "/" + currentTable, 0);
-                        currentTable = "";
-                        return;
+                    if (dataType != "INT" || dataType != "BIGINT") {
+                        throw invalid_argument("Only INT/BIGINT columns can be defined as PRIMARY_KEY. Column \"" + colName + "\" has type " + dataType + "." );
                     }
                     isPrimaryKey = true;
                     primaryKeyIndex = index;
                 }
-
-                constraints += "(" + cons + ")";
+                if(consSet.count(cons)){
+                    cerr << "WARNING: Multiple " << cons << " definitions found.";
+                } else {
+                    consSet.insert(cons);
+                    constraints += "(" + cons + ")";
+                }
             }
-
+            consSet.clear();
             string formatted = colName + "(" + dataType + ")" + constraints;
             formattedCols.push_back(formatted);
             index++;
         }
-
         if (primaryKeyIndex == -1) {
-            isAutoPrimaryKey = true;
             primaryKeyIndex = 0;
             formattedCols.insert(formattedCols.begin(), "self_pk(INT)(PRIMARY_KEY)");
         }
-
         for (size_t i = 0; i < formattedCols.size(); i++) {
             finalHeader += formattedCols[i];
             if (i != formattedCols.size() - 1)
@@ -290,9 +228,8 @@ void make_table(list<string> &queryList) {
     }
 
     newTable << finalHeader << "\n";
-    cout << "Table created with headers: " << finalHeader << endl;
     newTable.close();
-    cout << "Table is Successfully Created with primary key column index: " << primaryKeyIndex << endl;
+    cout << "res: Table Created Successfully."<< endl;
 }
 
 //--------------------------------------------------------------------------------
@@ -375,16 +312,14 @@ list<list<string>> splitQueries(const list<string>& tokens) {
 void move_up(){
     fs::path currentPath = fs::current_path();
     if(currentPath.string() == fs_path) {
-        cout << "Exiting program." << endl;
-        cout<< currentPath<< endl;
+        cout << "EXIT(0)" << endl;
         exitProgram = true;
     } else {
         fs::current_path("../");
         currentPath = fs::current_path();
-        cout<< currentPath<< endl;
         if(currentPath.string() == fs_path){
             currentDatabase = "";
-            cout << "Now at top-level." << endl;
+            cout << "TOP LEVEL!!!" << endl;
         }
     }
 }
