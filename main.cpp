@@ -33,16 +33,34 @@ int main(int argc, char const *argv[])
             prompt = currentDatabase + " >> ";
         else if (!currentTable.empty())
             prompt = currentTable + " >> ";
-        cout << prompt;
-        list<string> tokens = input();
-        if (!tokens.empty())
-        {
-            // Split tokens by pipe ("|") symbol.
-            list<list<string>> queries = splitQueries(tokens);
-            for (auto &q : queries) {
-                Parser parser(q);
-                parser.parse();
+
+        cout << "\033[1;34m" << prompt << "\033[0m"; // blue bold prompt
+        try{
+            list<string> tokens = input();
+            if (!tokens.empty())
+            {
+                // Split tokens by pipe ("|") symbol.
+                list<list<string>> queries = splitQueries(tokens);
+                for (auto &q : queries) {
+                    Parser parser(q);
+                    parser.parse();
+                }
             }
+        } catch (const std::invalid_argument &e) {
+            cerr << "\033[31m" << e.what() << "\033[0m" << endl << endl;
+            // return;
+        } catch (const std::logic_error &e) {
+            cerr << "\033[31m" << e.what() << "\033[0m" << endl << endl;
+            // return;
+        } catch (const string &msg) {
+            cerr << "\033[31m" << msg << "\033[0m" << endl << endl;
+            // return; 
+        } catch (const char* msg) {
+            cerr << "\033[31m" << msg << "\033[0m" << endl << endl;
+            // return;
+        } catch (...) {
+            cerr << "\033[31mUnknown Error occurred while processing query.\033[0m" << endl << endl;
+            // return;
         }
     }
     return 0;

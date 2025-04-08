@@ -78,7 +78,7 @@ void eraseTable(const string &tableName) {
     if (file.good()) {
         file.close();
         if (remove(filename.c_str()) == 0) {
-            cout<<"res: Table erased permanently."<<endl;
+            cout<<"\033[32mres: Table erased permanently.\033[0m"<<endl;
         } else {
             throw ("program_error: could not erase " + tableName + '.');
         }
@@ -229,7 +229,7 @@ void make_table(list<string> &queryList, const string tableName) {
 
     newTable << finalHeader << "\n";
     newTable.close();
-    cout << "res: Table Created Successfully."<< endl;
+    cout << "\033[32mres: Table Created Successfully.\033[0m"<< endl;
 }
 
 //--------------------------------------------------------------------------------

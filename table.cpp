@@ -411,7 +411,7 @@ public:
                         existingVal = (idx < pair.second.values.size()) ? pair.second.values[idx] : "";
                     }
                     if (existingVal == values[i]) {
-                        throw runtime_error("Constraint Error: Duplicate value '" + values[i] +
+                        throw ("Constraint Error: Duplicate value '" + values[i] +
                                             "' found in UNIQUE column '" + colName + "'.");
                     }
                 }
@@ -443,14 +443,14 @@ public:
         
             // Also check that the value conforms to the data type.
             if (!validateValue(values[i], expectedType)) {
-                throw runtime_error("Mismatch Error: Value \"" + values[i] + "\" is not valid for column \"" 
+                throw ("Mismatch Error: Value \"" + values[i] + "\" is not valid for column \"" 
                                        + colName + "\" of type " + expectedType + ".");
             }
         }
         // Check primary key constraint
         string pkValue = values[primaryKeyIndex];
         if (dataMap.find(pkValue) != dataMap.end()) {
-            cerr << "Constraint Error: Primary Key " << pkValue << " already exists." << endl;
+            throw ("Constraint Error: Primary Key " + pkValue + " already exists.");
             return;
         } 
         else {
@@ -507,7 +507,7 @@ public:
         writeToFile();
         updateTableMetadata();
         unsavedChanges = false;
-        cout << "res: Commit successful." << endl;
+        cout << "\033[32mres: Commit successful.\033[0m" << endl;
     }
     void rollbackTransaction() {
         if(unsavedChanges){
@@ -515,7 +515,7 @@ public:
         }else{
             cerr << "WARNING: No changes made to table." << endl;
         }
-        cout << "res: Rollback successful." << endl;
+        cout << "\033[32mres: Rollback successful.\033[0m" << endl;
     }
     void describe() {
         // Print a header for the description.
@@ -905,7 +905,7 @@ void Table::deleteColumn(const string &colName) {
         if (pair.second.values.size() >= colIndex)
             pair.second.values.erase(pair.second.values.begin() + (colIndex - 1));
     }
-    cout << "res: Column \"" << colName << "\" deleted successfully." << endl;
+    cout << "\033[32mres: Column \"" << colName << "\" deleted successfully.\033[0m" << endl;
     unsavedChanges = true;
 }
 void Table::deleteRowsByAdvancedConditions(const vector<vector<Condition>> &groups) {
@@ -939,7 +939,7 @@ void Table::deleteRowsByAdvancedConditions(const vector<vector<Condition>> &grou
         dataMap.erase(id);
         rowOrder.erase(remove(rowOrder.begin(), rowOrder.end(), id), rowOrder.end());
     }
-    cout <<"res: " << rowsToDelete.size() << " row(s) affected." << endl;
+    cout <<"\033[32mres: " << rowsToDelete.size() << " row(s) affected.\033[0m" << endl;
     unsavedChanges = true;
 }
 bool Table::evaluateAdvancedConditions(const Row &row, const vector<vector<Condition>> &groups) {

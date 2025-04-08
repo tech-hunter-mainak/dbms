@@ -20,7 +20,7 @@ void exitTable() {
         if (!answer.empty() && answer[0] == 'y') {
             currentTableInstance->commitTransaction();
         } else {
-            cout << "res: Discarding changes." << endl;
+            cout << "\033[32mres: Discarding changes.\033[0m" << endl;
         }
     }
     delete currentTableInstance;
@@ -210,7 +210,6 @@ private:
     }
 
     void processInsert() {
-        string token = getCommand();
         if (!currentTableInstance) {
             throw  logic_error("INSERT -> table not selected.");
         }
@@ -221,7 +220,7 @@ private:
             if (currentTableInstance){
                 currentTableInstance->insertRow(valuesToken);
             }
-            cout << "res: Data sucessfullt inserted."<< endl;
+            cout << "\033[32mres: Data sucessfully inserted.\033[0m"<< endl;
         }
     }
 
@@ -352,7 +351,6 @@ public:
     // The parse method processes all tokens.
     void parse() {
         while (!queryList.empty()) {
-            try {
                 string query = getCommand();
     
                 if (query == INIT) {
@@ -410,21 +408,6 @@ public:
                 else {
                     throw ("syntax_error: unknown query " + query );
                 }
-            } catch (const std::invalid_argument &e) {
-                cerr << "Invalid Argument Error: " << e.what() << endl;
-    
-            } catch (const std::logic_error &e) {
-                cerr << "Logic Error: " << e.what() << endl;
-    
-            } catch (const string &msg) {
-                cerr << "Error: " << msg << endl;
-    
-            } catch (const char* msg) {
-                cerr << "Error: " << msg << endl;
-    
-            } catch (...) {
-                cerr << "Unknown Error occurred while processing query." << endl;
-            }
         }
     }
     ~Parser() {
@@ -510,7 +493,10 @@ list<string> input() {
                         else if(isalnum(ch))
                             word.push_back(ch);
                         else {
-                            cerr << ch << " is not expected."<< endl;
+                            string errorMessage = "syntax_error: ";
+                            errorMessage.push_back(ch);
+                            errorMessage += " is not expected.";
+                            throw (errorMessage);
                             return {};
                         }
 
@@ -524,13 +510,13 @@ list<string> input() {
     
     if (!word.empty())
         query.push_back(word);
-    if (inside_parentheses)
-        cerr << "Mismatched parentheses in input." << endl;
-    
-// Comment out below lines, For debugging: print tokens
-    for (const string &token : query) {
-        cout << token << endl;
+    if (inside_parentheses){
+        throw ("syntax_error: Mismatched parentheses in input.");
     }
+// Comment out below lines, For debugging: print tokens
+    // for (const string &token : query) {
+    //     cout << token << endl;
+    // }
     return query;
 }
 
