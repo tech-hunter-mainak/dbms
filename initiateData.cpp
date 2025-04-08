@@ -45,9 +45,9 @@ string trimStr(const string &s) {
 bool isValidDataType(const string &dataType) {
     // Use dummy values for type checking
     if (dataType == "INT") return true;
-    if (dataType == "BIINT") return true;
+    if (dataType == "BIGINT") return true;
     if (dataType == "DOUBLE") return true;
-    if (dataType == "BIDOUBLE") return true;
+    if (dataType == "BIGDOUBLE") return true;
     if (dataType == "CHAR") return true;
     if (dataType == "VARCHAR" || dataType == "STRING") return true;
     if (dataType == "DATE") return true;
@@ -143,11 +143,6 @@ void make_table(list<string> &queryList, const string tableName) {
     }
     file.close();
 
-    ofstream newTable(filename);
-    if (!newTable.is_open()) {
-        throw ("program_error: Failed to create table file!");
-        return;
-    }
 
     string finalHeader;
     int primaryKeyIndex = -1;
@@ -226,7 +221,10 @@ void make_table(list<string> &queryList, const string tableName) {
                 finalHeader += ",";
         }
     }
-
+    ofstream newTable(filename);
+    if (!newTable.is_open()) {
+        throw ("program_error: Failed to create table!");
+    }
     newTable << finalHeader << "\n";
     newTable.close();
     cout << "\033[32mres: Table Created Successfully.\033[0m"<< endl;
@@ -240,7 +238,7 @@ void make_table(list<string> &queryList, const string tableName) {
 void listDatabases() {
     fs::path rootPath = fs_path;  // Root DBMS folder
     if (!fs::exists(rootPath)) {
-        cerr << "Sys ERR: Installation went wrong unistall and install again." << endl;
+        throw ("program_error: Installation went wrong unistall and install again.");
         
     }
     for (const auto &entry : fs::directory_iterator(rootPath)) {
@@ -260,6 +258,8 @@ void listDatabases() {
                     tableCount++;
             }
             cout << dbName << " - " << tableCount << " tb" << endl;
+        } else {
+            throw ("program_error: FILE crashed due to problems.");
         }
     }
 }
@@ -283,6 +283,8 @@ void listTables() {
             }
             file.close();
             cout << tableName << " - " << rowCount << " rows" << endl;
+        } else {
+            throw ("program_error: FILE crashed due to problems.");
         }
     }
 }
@@ -312,14 +314,12 @@ list<list<string>> splitQueries(const list<string>& tokens) {
 void move_up(){
     fs::path currentPath = fs::current_path();
     if(currentPath.string() == fs_path) {
-        cout << "EXIT(0)" << endl;
         exitProgram = true;
     } else {
         fs::current_path("../");
         currentPath = fs::current_path();
         if(currentPath.string() == fs_path){
             currentDatabase = "";
-            cout << "TOP LEVEL!!!" << endl;
         }
     }
 }

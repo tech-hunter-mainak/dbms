@@ -213,8 +213,12 @@ private:
         if (!currentTableInstance) {
             throw  logic_error("INSERT -> table not selected.");
         }
+        if(queryList.empty()){
+            throw ("syntax_error: missing commands.");
+        }
         while (!queryList.empty()) {
             string valuesToken = getCommand();
+            // if(trim(valuesToken).empty()) throw 
             // // Reconstruct a command string for insertRow.
             // string insertCommand = "INSERT(" + valuesToken + ")";
             if (currentTableInstance){
@@ -481,6 +485,7 @@ list<string> input() {
                 case '>':
                 case '*':
                 case '!':
+                case '~':
                     if (!s_quotation && !d_quotation) {
                         word.push_back(ch);
                     }

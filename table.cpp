@@ -116,13 +116,13 @@ vector<string> extractValues(const string &command)
         item.erase(0, item.find_first_not_of(" \t"));
         item.erase(item.find_last_not_of(" \t") + 1);
         if(item.empty()){
-            values.push_back("");
+            values.push_back("null");
         } else {
             values.push_back(item);
         }
     }
     if(item.empty()){
-        values.push_back("");
+        values.push_back("null");
     }
     return values;
 }
@@ -378,7 +378,14 @@ public:
     }
     void insertRow(const string &command) {
         vector<string> values = extractValues(command);
-        if (values.empty()) {
+        bool allNull = true;
+        for(int i = 0; i < values.size();i++){
+            if(values[i] != "null"){
+                allNull = !allNull;
+                break;
+            }
+        }
+        if (values.empty() || allNull) {
             throw invalid_argument("INSERT -> missing values/delimitters(,).");
         }
         if (values.size() > headers.size()) {
@@ -440,7 +447,6 @@ public:
                     values[i] = to_string(maxVal + 1);
                 }
             }
-        
             // Also check that the value conforms to the data type.
             if (!validateValue(values[i], expectedType)) {
                 throw ("Mismatch Error: Value \"" + values[i] + "\" is not valid for column \"" 
@@ -552,27 +558,28 @@ public:
         while (iss >> token)
             tokens.push_back(token);
         if (tokens.empty()) {
-            cerr << "Syntax Error: SHOW -> No viable arguments provided.\n";
-            return;
+            throw "syntax_error: SHOW -> missing arguments.\n";
         }
         
         // --- Check for LIKE clause ---
         bool likeMode = false;
-        string likePattern;  // prefix pattern for LIKE search (without trailing '%')
+        string likePattern;  // prefix pattern for LIKE search (without trailing '*')
         // Look for the token "LIKE" (case-insensitive)
         for (size_t i = 0; i < tokens.size(); i++) {
             string t = tokens[i];
-            string upperT = t;
-            transform(upperT.begin(), upperT.end(), upperT.begin(), ::toupper);
-            if (upperT == "LIKE") {
+            // string upperT = t;
+            // transform(upperT.begin(), upperT.end(), upperT.begin(), ::toupper);
+            if (t == LIKE) {
                 likeMode = true;
                 if (i + 1 < tokens.size()) {
                     likePattern = trim(tokens[i + 1]);
                     if (!likePattern.empty() && ((likePattern.front() == '"' && likePattern.back() == '"') ||
                                                  (likePattern.front() == '\'' && likePattern.back() == '\'')))
                         likePattern = likePattern.substr(1, likePattern.size() - 2);
-                    if (!likePattern.empty() && likePattern.back() == '%')
+                    if (!likePattern.empty() && likePattern.back() == '*')
                         likePattern.pop_back();
+                } else {
+                    throw ("syntax_error: SHOW -> missing argument for LIKE clause.");
                 }
                 // Erase the LIKE token and its argument.
                 tokens.erase(tokens.begin() + i, tokens.begin() + i + 2);
@@ -580,45 +587,65 @@ public:
             }
         }
         
-        // --- Determine the mode based on the first token ---
-        // If the first token is "*" then we show all columns.
+        // --- Helper Lambdas in Outer Scope ---
+        
+        // Total number of columns.
+        size_t nCols = headers.size();
+    
+        // Center a string within a given width.
+        auto center = [&](const string &s, size_t width) -> string {
+            if (s.length() >= width)
+                return s;
+            size_t leftPadding = (width - s.length()) / 2;
+            size_t rightPadding = width - s.length() - leftPadding;
+            return string(leftPadding, ' ') + s + string(rightPadding, ' ');
+        };
+    
+        // Compute initial column widths based on header names.
+        vector<size_t> colWidths(nCols, 0);
+        for (size_t i = 0; i < nCols; i++) {
+            colWidths[i] = headers[i].length();
+        }
+    
+        // Given a primary key, fetch the entire row as a vector of cell strings.
+        auto getRowCells = [&](const string &pk) -> vector<string> {
+            vector<string> cells(nCols, "");
+            auto it = dataMap.find(pk);
+            if (it == dataMap.end())
+                return cells;
+            for (size_t i = 0; i < nCols; i++) {
+                string cell;
+                if ((int)i == primaryKeyIndex)
+                    cell = it->first;
+                else if ((int)i < primaryKeyIndex)
+                    cell = (i < it->second.values.size()) ? it->second.values[i] : "";
+                else {
+                    int valIndex = i - 1;
+                    cell = (valIndex < it->second.values.size()) ? it->second.values[valIndex] : "";
+                }
+                cells[i] = cell;
+            }
+            return cells;
+        };
+    
+        // ----- START: Mode branches that use in-line printing logic -----
+        
+        // Mode 1: SHOW * [WHERE/LIKE clauses]
         if (tokens[0] == "*") {
             tokens.erase(tokens.begin()); // remove "*"
             // Check for an optional WHERE clause.
             bool whereClause = false;
             vector<string> condTokens;
-            if (!tokens.empty() && (tokens[0] == "where" || tokens[0] == "WHERE")) {
-                whereClause = true;
-                tokens.erase(tokens.begin()); // remove "where"
-                condTokens = tokens;  // remaining tokens form the WHERE clause
-            }
-            
-            size_t nCols = headers.size();
-            vector<size_t> colWidths(nCols, 0);
-            // Update widths based on header lengths.
-            for (size_t i = 0; i < nCols; i++) {
-                colWidths[i] = headers[i].length();
-            }
-            
-            auto getRowCells = [&](const string &pk) -> vector<string> {
-                vector<string> cells(nCols, "");
-                auto it = dataMap.find(pk);
-                if (it == dataMap.end())
-                    return cells;
-                for (size_t i = 0; i < nCols; i++) {
-                    string cell;
-                    if ((int)i == primaryKeyIndex)
-                        cell = it->first;
-                    else if ((int)i < primaryKeyIndex)
-                        cell = (i < it->second.values.size()) ? it->second.values[i] : "";
-                    else {
-                        int valIndex = i - 1;
-                        cell = (valIndex < it->second.values.size()) ? it->second.values[valIndex] : "";
-                    }
-                    cells[i] = cell;
+            if (!tokens.empty()) {
+                string firstToken = tokens[0];
+                if (firstToken == WHERE) {
+                    whereClause = true;
+                    tokens.erase(tokens.begin()); // Remove "WHERE"
+                    condTokens = tokens;  // Remaining tokens form the WHERE clause.
+                    if (condTokens.empty())
+                        throw ("syntax_error: SHOW -> WHERE clause provided but missing conditions.");
                 }
-                return cells;
-            };
+            }
             
             // Update column widths based on row content.
             for (const auto &pk : rowOrder) {
@@ -628,35 +655,9 @@ public:
                 }
             }
             
-            auto center = [&](const string &s, size_t width) -> string {
-                if (s.length() >= width)
-                    return s;
-                size_t leftPadding = (width - s.length()) / 2;
-                size_t rightPadding = width - s.length() - leftPadding;
-                return string(leftPadding, ' ') + s + string(rightPadding, ' ');
-            };
-            
-            // Print header row.
-            for (size_t i = 0; i < nCols; i++) {
-                cout << center(headers[i], colWidths[i]);
-                if (i != nCols - 1)
-                    cout << " | ";
-            }
-            cout << "\n";
-            // Print divider.
-            for (size_t i = 0; i < nCols; i++) {
-                cout << string(colWidths[i], '-');
-                if (i != nCols - 1)
-                    cout << "-+-";
-            }
-            cout << "\n";
-            
             // Lambda for filtering by LIKE (applies to all string columns).
             auto rowMatchesLike = [&](const vector<string>& cells) -> bool {
                 for (size_t i = 0; i < nCols; i++) {
-                    // Optionally, skip auto-generated primary key column.
-                    // if (isAutoPrimaryKey && i == 0)
-                    //     continue;
                     string dt = columnMeta[headers[i]].first;
                     if (dt == "VARCHAR" || dt == "CHAR" || dt == "STRING") {
                         string cell = cells[i];
@@ -670,20 +671,7 @@ public:
             
             // Lambda for WHERE filtering.
             auto rowMatchesWhere = [&](const vector<string>& cells) -> bool {
-                // Reconstruct a Row object from cells.
                 Row row;
-                // if (isAutoPrimaryKey) {
-                //     row.id = cells[0];
-                //     for (size_t i = 1; i < cells.size(); i++)
-                //         row.values.push_back(cells[i]);
-                // } else {
-                //     row.id = cells[primaryKeyIndex];
-                //     for (size_t i = 0; i < cells.size(); i++) {
-                //         if ((int)i == primaryKeyIndex)
-                //             continue;
-                //         row.values.push_back(cells[i]);
-                //     }
-                // }
                 row.id = cells[primaryKeyIndex];
                 for (size_t i = 0; i < cells.size(); i++) {
                     if ((int)i == primaryKeyIndex)
@@ -692,13 +680,27 @@ public:
                 }
                 return evaluateAdvancedConditions(row, parseAdvancedConditions(condTokens));
             };
+    
+            // --- Inline printing header ---
+            for (size_t i = 0; i < nCols; i++) {
+                cout << center(headers[i], colWidths[i]);
+                if (i != nCols - 1)
+                    cout << " | ";
+            }
+            cout << "\n";
+            for (size_t i = 0; i < nCols; i++) {
+                cout << string(colWidths[i], '-');
+                if (i != nCols - 1)
+                    cout << "-+-";
+            }
+            cout << "\n";
             
-            // Print rows.
+            // --- Inline printing each row.
             for (const auto &pk : rowOrder) {
                 vector<string> cells = getRowCells(pk);
                 if (likeMode && !rowMatchesLike(cells))
                     continue;
-                if (!condTokens.empty() && !rowMatchesWhere(cells))
+                if (whereClause && !rowMatchesWhere(cells))
                     continue;
                 for (size_t i = 0; i < nCols; i++) {
                     cout << setw(colWidths[i]) << left << cells[i];
@@ -708,23 +710,130 @@ public:
                 cout << "\n";
             }
         }
-        // HEAD and LIMIT branches remain unchanged...
+        // Mode 2: HEAD - Display header and first 5 rows (using the same in-line printing logic)
         else if (tokens[0] == HEAD) {
             int defaultLimit = 5;
-            // [Your existing HEAD branch code, using similar printing lambdas]
+            // Update column widths based on row content.
+            for (const auto &pk : rowOrder) {
+                vector<string> cells = getRowCells(pk);
+                for (size_t i = 0; i < nCols; i++) {
+                    colWidths[i] = max(colWidths[i], cells[i].length());
+                }
+            }
+            
+            // Print header.
+            for (size_t i = 0; i < nCols; i++) {
+                cout << center(headers[i], colWidths[i]);
+                if (i != nCols - 1)
+                    cout << " | ";
+            }
+            cout << "\n";
+            for (size_t i = 0; i < nCols; i++) {
+                cout << string(colWidths[i], '-');
+                if (i != nCols - 1)
+                    cout << "-+-";
+            }
+            cout << "\n";
+            
+            if (rowOrder.empty()) {
+                cout << "No rows to display.\n";
+                return;
+            }
+            
+            int count = 0;
+            for (const auto &pk : rowOrder) {
+                if (count >= defaultLimit)
+                    break;
+                vector<string> cells = getRowCells(pk);
+                for (size_t i = 0; i < nCols; i++) {
+                    cout << setw(colWidths[i]) << left << cells[i];
+                    if (i != nCols - 1)
+                        cout << " | ";
+                }
+                cout << "\n";
+                count++;
+            }
         }
+        // Mode 3: LIMIT - Display header and a limited number of rows.
         else if (tokens[0] == LIMIT) {
-            // [Your existing LIMIT branch code]
+            if (tokens.size() < 2) {
+                throw ("syntax_error: LIMIT -> missing number for LIMIT command.");
+            }
+            bool fromBottom = false;
+            string numToken = tokens[1];
+            if (!numToken.empty() && numToken[0] == '~') {
+                fromBottom = true;
+                numToken = numToken.substr(1);
+            }
+            int limit = 0;
+            try {
+                limit = stoi(numToken);
+            } catch (...) {
+                throw ("syntax_error: LIMIT -> invalid number for LIMIT command.");
+            }
+            if (limit <= 0) {
+                throw ("syntax_error: LIMIT -> limit must be a positive integer.");
+            }
+            
+            // Update column widths based on row content.
+            for (const auto &pk : rowOrder) {
+                vector<string> cells = getRowCells(pk);
+                for (size_t i = 0; i < nCols; i++) {
+                    colWidths[i] = max(colWidths[i], cells[i].length());
+                }
+            }
+            
+            // Print header.
+            for (size_t i = 0; i < nCols; i++) {
+                cout << center(headers[i], colWidths[i]);
+                if (i != nCols - 1)
+                    cout << " | ";
+            }
+            cout << "\n";
+            for (size_t i = 0; i < nCols; i++) {
+                cout << string(colWidths[i], '-');
+                if (i != nCols - 1)
+                    cout << "-+-";
+            }
+            cout << "\n";
+            
+            int total = rowOrder.size();
+            if (!fromBottom) {
+                int count = 0;
+                for (const auto &pk : rowOrder) {
+                    if (count >= limit)
+                        break;
+                    vector<string> cells = getRowCells(pk);
+                    for (size_t i = 0; i < nCols; i++) {
+                        cout << setw(colWidths[i]) << left << cells[i];
+                        if (i != nCols - 1)
+                            cout << " | ";
+                    }
+                    cout << "\n";
+                    count++;
+                }
+            } else {
+                int start = max(0, total - limit);
+                for (int i = start; i < total; i++) {
+                    vector<string> cells = getRowCells(rowOrder[i]);
+                    for (size_t j = 0; j < nCols; j++) {
+                        cout << setw(colWidths[j]) << left << cells[j];
+                        if (j != nCols - 1)
+                            cout << " | ";
+                    }
+                    cout << "\n";
+                }
+            }
         }
+        // Mode 4: SHOW specific columns with optional WHERE/LIKE filtering.
         else {
             // This branch handles "show <col1>,<col2>,... [where/LIKE <conditions>]"
             // Instead of joining tokens, treat each token before a WHERE/LIKE as a separate column spec.
             vector<string> selectedColumns;
             int clauseIndex = -1;
             for (int i = 0; i < tokens.size(); i++) {
-                string upperToken = tokens[i];
-                transform(upperToken.begin(), upperToken.end(), upperToken.begin(), ::toupper);
-                if (upperToken == "WHERE" || upperToken == "LIKE") {
+                string token = tokens[i];
+                if (token == WHERE) {
                     clauseIndex = i;
                     break;
                 }
@@ -736,6 +845,10 @@ public:
                 if (!colName.empty())
                     selectedColumns.push_back(colName);
             }
+    
+            // if (selectedColumns.empty()) {
+            //     throw ("syntax_error: SHOW -> no columns specified.");
+            // }
             
             // Determine if there's an extra clause.
             vector<string> extraTokens;
@@ -746,18 +859,18 @@ public:
             // If the clause is LIKE, then set likeMode.
             if (clauseIndex != -1) {
                 string firstClause = tokens[clauseIndex];
-                string upperClause = firstClause;
-                transform(upperClause.begin(), upperClause.end(), upperClause.begin(), ::toupper);
-                if (upperClause == "LIKE") {
+                if (firstClause == LIKE) {
                     likeMode = true;
                     if (!extraTokens.empty()) {
                         likePattern = trim(extraTokens[0]);
                         if (!likePattern.empty() &&
-                           ((likePattern.front() == '"' && likePattern.back() == '"') ||
-                            (likePattern.front() == '\'' && likePattern.back() == '\'')))
+                            ((likePattern.front() == '"' && likePattern.back() == '"') ||
+                             (likePattern.front() == '\'' && likePattern.back() == '\'')))
                             likePattern = likePattern.substr(1, likePattern.size() - 2);
-                        if (!likePattern.empty() && likePattern.back() == '%')
+                        if (!likePattern.empty() && likePattern.back() == '*')
                             likePattern.pop_back();
+                    } else {
+                        throw ("syntax_error: SHOW -> missing argument for LIKE clause.");
                     }
                     extraTokens.clear(); // clear extraTokens since LIKE is handled separately.
                 }
@@ -774,17 +887,16 @@ public:
                     }
                 }
                 if (colIndex == -1) {
-                    cout << "Column \"" << colName << "\" not found.\n";
-                    return;
+                    throw ("Column \"" + colName + "\" not found.\n");
                 }
                 colIndices.push_back(colIndex);
             }
             
             // Compute dynamic widths for selected columns.
-            size_t nCols = colIndices.size();
-            vector<size_t> colWidths(nCols, 0);
-            for (size_t i = 0; i < nCols; i++) {
-                colWidths[i] = headers[colIndices[i]].length();
+            size_t nSelected = colIndices.size();
+            vector<size_t> selColWidths(nSelected, 0);
+            for (size_t i = 0; i < nSelected; i++) {
+                selColWidths[i] = headers[colIndices[i]].length();
             }
             
             auto getCellValue = [&](const Row &row, int colIndex) -> string {
@@ -804,13 +916,14 @@ public:
             for (const auto &pk : rowOrder) {
                 auto it = dataMap.find(pk);
                 if (it == dataMap.end()) continue;
-                for (size_t i = 0; i < nCols; i++) {
+                for (size_t i = 0; i < nSelected; i++) {
                     string cell = getCellValue(it->second, colIndices[i]);
-                    colWidths[i] = max(colWidths[i], cell.length());
+                    selColWidths[i] = max(selColWidths[i], cell.length());
                 }
             }
             
-            auto center = [&](const string &s, size_t width) -> string {
+            // Re-use the center lambda.
+            auto centerSel = [&](const string &s, size_t width) -> string {
                 if (s.length() >= width)
                     return s;
                 size_t leftPadding = (width - s.length()) / 2;
@@ -818,16 +931,15 @@ public:
                 return string(leftPadding, ' ') + s + string(rightPadding, ' ');
             };
             
-            // Print header row (centered).
+            // Print header row (centered) for selected columns.
             for (size_t i = 0; i < selectedColumns.size(); i++) {
-                cout << center(selectedColumns[i], colWidths[i]);
+                cout << centerSel(selectedColumns[i], selColWidths[i]);
                 if (i != selectedColumns.size() - 1)
                     cout << " | ";
             }
             cout << "\n";
-            // Print divider.
             for (size_t i = 0; i < selectedColumns.size(); i++) {
-                cout << string(colWidths[i], '-');
+                cout << string(selColWidths[i], '-');
                 if (i != selectedColumns.size() - 1)
                     cout << "-+-";
             }
@@ -839,7 +951,7 @@ public:
                 conditionGroups = parseAdvancedConditions(extraTokens);
             
             // For LIKE filtering on selected columns.
-            auto rowMatchesLike = [&](const Row &row) -> bool {
+            auto rowMatchesLikeSel = [&](const Row &row) -> bool {
                 for (int colIndex : colIndices) {
                     string dt = columnMeta[headers[colIndex]].first;
                     if (dt == "VARCHAR" || dt == "CHAR" || dt == "STRING") {
@@ -859,21 +971,22 @@ public:
                     continue;
                 if (!conditionGroups.empty() && !evaluateAdvancedConditions(it->second, conditionGroups))
                     continue;
-                if (likeMode && !rowMatchesLike(it->second))
+                if (likeMode && !rowMatchesLikeSel(it->second))
                     continue;
-                for (size_t i = 0; i < nCols; i++) {
+                for (size_t i = 0; i < nSelected; i++) {
                     string cell = getCellValue(it->second, colIndices[i]);
-                    cout << setw(colWidths[i]) << left << cell;
-                    if (i != nCols - 1)
+                    cout << setw(selColWidths[i]) << left << cell;
+                    if (i != nSelected - 1)
                         cout << " | ";
                 }
                 cout << "\n";
             }
         }
     }
-    
+    // End of show() function.
     friend void exitTable();
 };
+    
 bool Table::hasRow(const string &id) {
     return dataMap.find(id) != dataMap.end();
 }
