@@ -17,6 +17,8 @@
 #include <unordered_set>
 #include <regex>
 #include <iomanip>
+#include <readline/readline.h>
+#include <readline/history.h>
 #include "keywords.cpp"
 using namespace std;
 

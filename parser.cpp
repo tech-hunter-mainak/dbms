@@ -416,9 +416,9 @@ public:
 };
 
 /*     Done    */
-list<string> input() {
-    string inputStr;
-    getline(cin, inputStr);
+list<string> input(const string& inputStr) {
+    // string inputStr;
+    // getline(cin, inputStr);
 
     list<string> query;
     string word = "";
@@ -497,7 +497,6 @@ list<string> input() {
                             errorMessage.push_back(ch);
                             errorMessage += " is not expected.";
                             throw (errorMessage);
-                            return {};
                         }
 
                     } else {
@@ -514,9 +513,9 @@ list<string> input() {
         throw ("syntax_error: Mismatched parentheses in input.");
     }
 // Comment out below lines, For debugging: print tokens
-    // for (const string &token : query) {
-    //     cout << token << endl;
-    // }
+    for (const string &token : query) {
+        cout << token << endl;
+    }
     return query;
 }
 
