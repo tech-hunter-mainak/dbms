@@ -9,7 +9,7 @@ string currentDatabase = "";
 string currentTable = "";
 int main(int argc, char const *argv[])
 {
-    cout << "Welcome to the robust DBMS! Type your commands below." << endl;
+    cout << "\033[1;35mWelcome to the robust DBMS! Type your commands below.\033[0m" << endl;
     string dbmsFolder = "DBMS";
     if (!fs::exists(dbmsFolder))
     {

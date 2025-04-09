@@ -58,7 +58,7 @@ bool isValidDataType(const string &dataType) {
 bool isValidConstraint(const string &constraint) {
     string upperCons = constraint;
     transform(upperCons.begin(), upperCons.end(), upperCons.begin(), ::toupper);
-    if(upperCons == "PRIMARY_KEY" || upperCons == "NOT_NULL" || upperCons == "UNIQUE" || upperCons == "AUTO_INCREMENT") return true;
+    if(upperCons == "PRIMARY" || upperCons == "NOT_NULL" || upperCons == "UNIQUE" || upperCons == "AUTO_INCREMENT" || upperCons == "DEFAULT") return true;
     return false;
 }
 // Erases a database directory (and all its contents) if it exists.
@@ -107,12 +107,13 @@ vector<string> tokenizeColumnDef(const string &colDef) {
     bool inQuotes = false;
     string current;
     for (char ch : colDef) {
-        if (ch == '"') {
+        if (ch == '"' || ch == '\'') {
             inQuotes = !inQuotes;
             continue;
         }
         if (!inQuotes && isspace(ch)) {
             if (!current.empty()) {
+                cout << current << endl;
                 tokens.push_back(trimStr(current));
                 current.clear();
             }
@@ -176,7 +177,7 @@ void make_table(list<string> &queryList, const string tableName) {
             string colName = tokens[0];
             string dataType = tokens[1];
             transform(dataType.begin(), dataType.end(), dataType.begin(), ::toupper);
-            if (!isValidDataType(dataType)) {
+            if (!isValidDataType(trimStr(dataType))) {
                 throw invalid_argument("Invalid data type for column \"" + colName + "\" : " + dataType);
             }
             string constraints = "";
@@ -185,22 +186,37 @@ void make_table(list<string> &queryList, const string tableName) {
             for (size_t i = 2; i < tokens.size(); i++) {
                 string cons = tokens[i];
                 transform(cons.begin(), cons.end(), cons.begin(), ::toupper);
+                if(cons == "DEFAULT"){
+                    if(consSet.count(cons)){
+                        throw ("WARNING: Multiple " + cons + " definitions found.");
+                    }
+                    i += 1;
+                    if( i < tokens.size()){
+                        string defaultValue = tokens[i];
+                        consSet.insert(cons);
+                        constraints += "(" + cons + '#' + defaultValue + ")";
+                        continue;
+                    } else {
+                        throw invalid_argument("No default value mentioned.");
+                    }
+                }
                 if (!isValidConstraint(cons)) {
-                    throw invalid_argument("Invalid data type for column \"" + colName + "\" : " + dataType);
+                    throw invalid_argument("Invalid constraint for column \"" + colName + "\" : " + cons);
                 }
 
-                if (cons == "PRIMARY_KEY") {
+                if (cons == "PRIMARY") {
                     if (primaryKeyIndex != -1) {
-                        throw invalid_argument("Multiple PRIMARY_KEY definitions found. Only one PRIMARY_KEY is allowed.");
+                        throw invalid_argument("Multiple PRIMARY definitions found. Only one PRIMARY is allowed.");
                     }
-                    if (dataType != "INT" || dataType != "BIGINT") {
-                        throw invalid_argument("Only INT/BIGINT columns can be defined as PRIMARY_KEY. Column \"" + colName + "\" has type " + dataType + "." );
+                    if (dataType != "INT" && dataType != "BIGINT") {
+                        throw invalid_argument("Only INT/BIGINT columns can be defined as PRIMARY. Column \"" + colName + "\" has type " + dataType + "." );
                     }
                     isPrimaryKey = true;
                     primaryKeyIndex = index;
                 }
+                
                 if(consSet.count(cons)){
-                    cerr << "WARNING: Multiple " << cons << " definitions found.";
+                    throw ("WARNING: Multiple " + cons + " definitions found.");
                 } else {
                     consSet.insert(cons);
                     constraints += "(" + cons + ")";
@@ -213,7 +229,7 @@ void make_table(list<string> &queryList, const string tableName) {
         }
         if (primaryKeyIndex == -1) {
             primaryKeyIndex = 0;
-            formattedCols.insert(formattedCols.begin(), "self_pk(INT)(PRIMARY_KEY)");
+            formattedCols.insert(formattedCols.begin(), "self_pk(INT)(PRIMARY)");
         }
         for (size_t i = 0; i < formattedCols.size(); i++) {
             finalHeader += formattedCols[i];
@@ -299,6 +315,8 @@ list<list<string>> splitQueries(const list<string>& tokens) {
             if (!current.empty()) {
                 queries.push_back(current);
                 current.clear();
+            } else {
+                throw ("syntax_error: Query cannot be empty.");
             }
         } else {
             current.push_back(tok);
@@ -306,6 +324,8 @@ list<list<string>> splitQueries(const list<string>& tokens) {
     }
     if (!current.empty()) {
         queries.push_back(current);
+    }else {
+        throw ("syntax_error: Query cannot be empty.");
     }
     return queries;
 }

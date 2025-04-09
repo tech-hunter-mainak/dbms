@@ -44,7 +44,9 @@ private:
         }
         string tableName = getCommand();    
         // Set the global currentTable to the table name.
-        
+        if(tableName[0] == ' ' || tableName[tableName.size() - 1] == ' '){
+            throw invalid_argument("Table name cannot start/end with <space>");
+        }
         // Call the free function make_table with only the header definitions.
         make_table(queryList, tableName);
         // After creation, currentTable should be set by make_table.
@@ -485,6 +487,7 @@ list<string> input() {
                 case '>':
                 case '*':
                 case '!':
+                case '.':
                 case '~':
                     if (!s_quotation && !d_quotation) {
                         word.push_back(ch);

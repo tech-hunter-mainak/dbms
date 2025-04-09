@@ -1,6 +1,6 @@
 #include "row.cpp"
 #include "library.cpp"  // Or your other necessary headers
-
+// #include "initiateData.cpp"
 
 struct Condition {
     string column;
@@ -16,8 +16,29 @@ string trim(const string &s) {
     return s.substr(start, end - start + 1); // ✅ The result includes the character at start_index,❌ But does NOT use an end_index.
 }
 // Helper for comparing two values based on an operator.
-bool compareValues(const string &actual, const string &op, const string &expected);
-
+// bool compareValues(const string &actual, const string &op, const string &expected);
+vector<string> extractValues(const string &command)
+{
+    vector<string> values;
+    stringstream ss(command);
+    string item;
+    while (getline(ss, item, ',')) {
+        // Trim spaces and remove quotes.
+        item.erase(remove(item.begin(), item.end(), '"'), item.end());
+        item.erase(remove(item.begin(), item.end(), '\''), item.end());
+        item.erase(0, item.find_first_not_of(" \t"));
+        item.erase(item.find_last_not_of(" \t") + 1);
+        if(item.empty()){
+            values.push_back("null");
+        } else {
+            values.push_back(item);
+        }
+    }
+    if(item.empty()){
+        values.push_back("null");
+    }
+    return values;
+}
 bool validateValue(const string &value, const string &dataType) {
     if(value == "null"){
         return true;
@@ -103,30 +124,31 @@ bool validateValue(const string &value, const string &dataType) {
     // Additional data types can be added here.
     return false;
 }
-
-vector<string> extractValues(const string &command)
-{
-    vector<string> values;
-    stringstream ss(command);
-    string item;
-    while (getline(ss, item, ',')) {
-        // Trim spaces and remove quotes.
-        item.erase(remove(item.begin(), item.end(), '"'), item.end());
-        item.erase(remove(item.begin(), item.end(), '\''), item.end());
-        item.erase(0, item.find_first_not_of(" \t"));
-        item.erase(item.find_last_not_of(" \t") + 1);
-        if(item.empty()){
-            values.push_back("null");
-        } else {
-            values.push_back(item);
-        }
+bool compareValues(const string &actual, const string &op, const string &expected) {
+    // Try to treat both values as numbers.
+    double a, b;
+    bool isNumeric = false;
+    try {
+        a = stod(actual);
+        b = stod(expected);
+        isNumeric = true;
+    } catch (...) {
+        // Not numeric; fall back to string comparison.
     }
-    if(item.empty()){
-        values.push_back("null");
-    }
-    return values;
+    if (op == "=")
+        return actual == expected;
+    else if (op == ">" )
+        return isNumeric ? (a > b) : (actual > expected);
+    else if (op == "<")
+        return isNumeric ? (a < b) : (actual < expected);
+    else if (op == ">=")
+        return isNumeric ? (a >= b) : (actual >= expected);
+    else if (op == "<=")
+        return isNumeric ? (a <= b) : (actual <= expected);
+    else if (op == "!=")
+        return actual != expected;
+    return false;
 }
-
 // class declaration
 class Table {
 private:
@@ -153,8 +175,15 @@ private:
             string colName = headers[i];
             auto meta = columnMeta[colName];
             string headerLine = colName + "(" + meta.first + ")";
-            if (!meta.second.empty())
-                headerLine += "(" + meta.second + ")";
+            if (!meta.second.empty()) {
+                istringstream ss(meta.second);
+                string constraint;
+                while (getline(ss, constraint, ',')) {
+                    constraint = trim(constraint); // optional: remove spaces
+                    if (!constraint.empty())
+                        headerLine += "(" + constraint + ")";
+                }
+            }
             file << headerLine;
             if (i < headers.size() - 1)
                 file << ",";
@@ -319,7 +348,7 @@ public:
                         
                         // Check if this column is the PRIMARY_KEY.
                         for (auto &c : constraints) {
-                            if (c == "PRIMARY_KEY") {
+                            if (c == "PRIMARY") {
                                 // Set the primary key index.
                                 primaryKeyIndex = colIndex;
                                 // cout<<primaryKeyIndex;
@@ -378,19 +407,21 @@ public:
     }
     void insertRow(const string &command) {
         vector<string> values = extractValues(command);
-        bool allNull = true;
-        for(int i = 0; i < values.size();i++){
-            if(values[i] != "null"){
-                allNull = !allNull;
-                break;
-            }
-        }
-        if (values.empty() || allNull) {
-            throw invalid_argument("INSERT -> missing values/delimitters(,).");
-        }
-        if (values.size() > headers.size()) {
-            cerr << "invalid_argument: Number of values (" << values.size() << ") does not match number of columns (" << headers.size() << ")." << endl;
-            throw ("");
+        // bool allNull = true;
+        // for(int i = 0; i < values.size();i++){
+        //     if(values[i] != "null"){
+        //         allNull = !allNull;
+        //         break;
+        //     }
+        // }
+        // if (values.empty() || allNull) {
+        //     throw invalid_argument("INSERT -> missing values/delimitters(,).");
+        // }
+        int count = values.size();
+        int n_cols = headers.size();
+        if (count > n_cols || count < n_cols) {
+            string errMsg = "invalid_argument: Number of values (" + to_string(count) + ") does not match number of columns (" + to_string(n_cols) + ").";
+            throw (errMsg);
         }
         for (size_t i = 0; i < values.size(); i++) {
             string colName = headers[i];
@@ -398,6 +429,28 @@ public:
             string consStr = columnMeta[colName].second;
             unordered_set<string> consSet = parseConstraints(consStr);
         
+            
+            // #include <algorithm>  // for std::find_if
+
+            // check for default
+            auto it = std::find_if(consSet.begin(), consSet.end(), [](const std::string &s) {
+                return s.compare(0, 7, "DEFAULT") == 0;
+            });
+            if (it != consSet.end()) {
+                // Constraint found. Extract the substring after '#'
+                std::string constraint = *it;
+                std::size_t pos = constraint.find('#');
+                if (pos != std::string::npos && pos + 1 < constraint.size()) {
+                    std::string defaultValue = constraint.substr(pos + 1);
+                    if(!validateValue(defaultValue, expectedType)){
+                        throw ("mismatch_error: " + defaultValue + " doesn't match " + colName + " datatype.");
+                    }
+                    // Check for "null" or empty trimmed value before applying the default.
+                    if (values[i] == "null" || trim(values[i]).empty()) {
+                        values[i] = defaultValue;
+                    }
+                }
+            }
             // Check NOT_NULL constraint.
             if (consSet.count("NOT_NULL")) {
                 if (values[i] == "null" || trim(values[i]).empty()) {
@@ -425,7 +478,7 @@ public:
             }
         
             // AUTO_INCREMENT is handled for primary key (and optionally other columns) as in section 3.
-            if (consSet.count("AUTO_INCREMENT") || consSet.count("PRIMARY_KEY")) {
+            if (consSet.count("AUTO_INCREMENT") || consSet.count("PRIMARY")) {
                 if (values[i] == "null" || trim(values[i]).empty()) {
                     int maxVal = 0;
                     // Iterate through all rows to find the current maximum value.
@@ -527,9 +580,9 @@ public:
         // Print a header for the description.
         cout << "Table: " << currentTable << "\n";
         cout << "-------------------------------------------------\n";
-        cout << setw(20) << left << "Column Name" 
+        cout <<  "\033[33m" << setw(20) << left << "Column Name" 
              << setw(15) << left << "Data Type"
-             << "Constraints" << "\n";
+             << "Constraints" << "\033[0m\n";
             /* 
                 left and setw are I/O manipulators in C++ from the <iomanip> header, 
                 used to format how text is printed to the console 
@@ -541,8 +594,10 @@ public:
         for (const auto &colName : headers) {
             // Get data type and constraints from columnMeta.
             auto metaIt = columnMeta.find(colName);
-            string dataType = (metaIt != columnMeta.end()) ? metaIt->second.first : "*EMPTY";
-            string constraints = (metaIt != columnMeta.end()) ? metaIt->second.second : "*EMPTY";
+            string dataType = (metaIt != columnMeta.end()) ? metaIt->second.first : "\033[31m*None\033[0m";
+            string constraints = (metaIt != columnMeta.end()) ? metaIt->second.second : "\033[31m*None\033[0m";
+            if(trim(dataType).empty()) dataType = "\033[31mNone\033[0m";
+            if(trim(constraints).empty()) constraints = "\033[31mNone\033[0m";
             cout << setw(20) << left << colName
                  << setw(15) << left << dataType
                  << constraints << "\n";
@@ -627,6 +682,93 @@ public:
             }
             return cells;
         };
+        // this is for all columns
+        auto print = [&](const bool& printRows, const bool &dir,const int& nor) -> void {
+            int count = 0;
+            int total = rowOrder.size();
+            if(nor > total){
+                string errMsg = to_string(total) + "records are present.";
+                throw invalid_argument(errMsg);
+            }
+            // Update column widths based on row content.
+            if(dir){ // if true top -> bottom
+                for (const auto &pk : rowOrder) {
+                    if(count < nor) count ++; // inno setup compiler
+                    else break;
+                    vector<string> cells = getRowCells(pk);
+                    for (size_t i = 0; i < nCols; i++) {
+                        colWidths[i] = max(colWidths[i], cells[i].length());
+                    }
+                }
+            } else { // if false bottom -> top
+                count = total - nor;
+                for(int i = count ; i < total; i++){
+                    vector<string> cells = getRowCells(rowOrder[i]);
+                    for (size_t j = 0; j < nCols; j++) {
+                        colWidths[j] = max(colWidths[j], cells[j].length());
+                    }
+                }
+            }
+            
+            // above columns defs
+            cout << endl;
+            for (size_t i = 0; i < nCols; i++) {
+                if(i == 0) cout << "+-";
+                else if (i != nCols) cout << "-+-";
+                cout << string(colWidths[i], '-');
+                
+            }
+            // column definations 
+            cout << "-+\n";
+            for (size_t i = 0; i < nCols; i++) {
+                if(i == 0) cout << "| ";
+                else if (i != nCols) cout << " | ";
+                cout << "\033[33m" << center(headers[i], colWidths[i]) << "\033[0m";
+            }
+            // below column defs
+            cout << " |\n";
+            for (size_t i = 0; i < nCols; i++) {
+                if(i == 0) cout << "+-";
+                else if (i != nCols) cout << "-+-";
+                cout << string(colWidths[i], '-');
+                
+            }
+            cout << "-+\n";
+            if(printRows){
+                // --- Inline printing each row.
+                if (dir) {
+                    for (const auto &pk : rowOrder) {
+                        if (count < 1) break;
+                        vector<string> cells = getRowCells(pk);
+                        for (size_t i = 0; i < nCols; i++) {
+                            if(i == 0) cout << "| ";
+                            else if (i != nCols) cout << " | ";
+                            cout << setw(colWidths[i]) << left << cells[i];
+                        }
+                        cout << " |\n";
+                        count--;
+                    }
+                } else {
+                    int start = max(0, total - nor);
+                    for (int i = start; i < total ; i++) {
+                        vector<string> cells = getRowCells(rowOrder[i]);
+                        for (size_t j = 0; j < nCols; j++) {
+                            if(j == 0) cout << "| ";
+                            else if (j != nCols) cout << " | ";
+                            cout << setw(colWidths[j]) << left << cells[j];
+                        }
+                        cout << " |\n";
+                    }
+                }
+                // table below column defs
+                for (size_t i = 0; i < nCols; i++) {
+                    if(i == 0) cout << "+-";
+                    else if (i != nCols) cout << "-+-";
+                    cout << string(colWidths[i], '-');
+                }
+                cout << "-+\n";
+            }
+        };
     
         // ----- START: Mode branches that use in-line printing logic -----
         
@@ -647,14 +789,6 @@ public:
                 }
             }
             
-            // Update column widths based on row content.
-            for (const auto &pk : rowOrder) {
-                vector<string> cells = getRowCells(pk);
-                for (size_t i = 0; i < nCols; i++) {
-                    colWidths[i] = max(colWidths[i], cells[i].length());
-                }
-            }
-            
             // Lambda for filtering by LIKE (applies to all string columns).
             auto rowMatchesLike = [&](const vector<string>& cells) -> bool {
                 for (size_t i = 0; i < nCols; i++) {
@@ -668,91 +802,39 @@ public:
                 }
                 return false;
             };
-            
-            // Lambda for WHERE filtering.
-            auto rowMatchesWhere = [&](const vector<string>& cells) -> bool {
-                Row row;
-                row.id = cells[primaryKeyIndex];
-                for (size_t i = 0; i < cells.size(); i++) {
-                    if ((int)i == primaryKeyIndex)
-                        continue;
-                    row.values.push_back(cells[i]);
-                }
-                return evaluateAdvancedConditions(row, parseAdvancedConditions(condTokens));
-            };
-    
-            // --- Inline printing header ---
-            for (size_t i = 0; i < nCols; i++) {
-                cout << center(headers[i], colWidths[i]);
-                if (i != nCols - 1)
-                    cout << " | ";
-            }
-            cout << "\n";
-            for (size_t i = 0; i < nCols; i++) {
-                cout << string(colWidths[i], '-');
-                if (i != nCols - 1)
-                    cout << "-+-";
-            }
-            cout << "\n";
-            
-            // --- Inline printing each row.
+            // prints the table
+            print(false,true,rowOrder.size());
+            auto condGroups = parseAdvancedConditions(condTokens);
             for (const auto &pk : rowOrder) {
+                auto it = dataMap.find(pk);
                 vector<string> cells = getRowCells(pk);
                 if (likeMode && !rowMatchesLike(cells))
                     continue;
-                if (whereClause && !rowMatchesWhere(cells))
+                if (!condTokens.empty() && !evaluateAdvancedConditions(it->second, condGroups))
                     continue;
                 for (size_t i = 0; i < nCols; i++) {
-                    cout << setw(colWidths[i]) << left << cells[i];
-                    if (i != nCols - 1)
+                    if(i == 0)
+                        cout << "| ";
+                    else if (i != nCols)
                         cout << " | ";
+                    cout << setw(colWidths[i]) << left << cells[i];
                 }
-                cout << "\n";
+                cout << " |\n";
             }
+            for (size_t i = 0; i < nCols; i++) {
+                if(i == 0)
+                    cout << "+-";
+                else if (i != nCols)
+                    cout << "-+-";
+                cout << string(colWidths[i], '-');
+                
+            }
+            cout << "-+\n";
         }
         // Mode 2: HEAD - Display header and first 5 rows (using the same in-line printing logic)
         else if (tokens[0] == HEAD) {
             int defaultLimit = 5;
-            // Update column widths based on row content.
-            for (const auto &pk : rowOrder) {
-                vector<string> cells = getRowCells(pk);
-                for (size_t i = 0; i < nCols; i++) {
-                    colWidths[i] = max(colWidths[i], cells[i].length());
-                }
-            }
-            
-            // Print header.
-            for (size_t i = 0; i < nCols; i++) {
-                cout << center(headers[i], colWidths[i]);
-                if (i != nCols - 1)
-                    cout << " | ";
-            }
-            cout << "\n";
-            for (size_t i = 0; i < nCols; i++) {
-                cout << string(colWidths[i], '-');
-                if (i != nCols - 1)
-                    cout << "-+-";
-            }
-            cout << "\n";
-            
-            if (rowOrder.empty()) {
-                cout << "No rows to display.\n";
-                return;
-            }
-            
-            int count = 0;
-            for (const auto &pk : rowOrder) {
-                if (count >= defaultLimit)
-                    break;
-                vector<string> cells = getRowCells(pk);
-                for (size_t i = 0; i < nCols; i++) {
-                    cout << setw(colWidths[i]) << left << cells[i];
-                    if (i != nCols - 1)
-                        cout << " | ";
-                }
-                cout << "\n";
-                count++;
-            }
+            print(true,true,defaultLimit);
         }
         // Mode 3: LIMIT - Display header and a limited number of rows.
         else if (tokens[0] == LIMIT) {
@@ -761,7 +843,7 @@ public:
             }
             bool fromBottom = false;
             string numToken = tokens[1];
-            if (!numToken.empty() && numToken[0] == '~') {
+            if (!numToken.empty() && numToken[0] == TILDE) {
                 fromBottom = true;
                 numToken = numToken.substr(1);
             }
@@ -774,56 +856,7 @@ public:
             if (limit <= 0) {
                 throw ("syntax_error: LIMIT -> limit must be a positive integer.");
             }
-            
-            // Update column widths based on row content.
-            for (const auto &pk : rowOrder) {
-                vector<string> cells = getRowCells(pk);
-                for (size_t i = 0; i < nCols; i++) {
-                    colWidths[i] = max(colWidths[i], cells[i].length());
-                }
-            }
-            
-            // Print header.
-            for (size_t i = 0; i < nCols; i++) {
-                cout << center(headers[i], colWidths[i]);
-                if (i != nCols - 1)
-                    cout << " | ";
-            }
-            cout << "\n";
-            for (size_t i = 0; i < nCols; i++) {
-                cout << string(colWidths[i], '-');
-                if (i != nCols - 1)
-                    cout << "-+-";
-            }
-            cout << "\n";
-            
-            int total = rowOrder.size();
-            if (!fromBottom) {
-                int count = 0;
-                for (const auto &pk : rowOrder) {
-                    if (count >= limit)
-                        break;
-                    vector<string> cells = getRowCells(pk);
-                    for (size_t i = 0; i < nCols; i++) {
-                        cout << setw(colWidths[i]) << left << cells[i];
-                        if (i != nCols - 1)
-                            cout << " | ";
-                    }
-                    cout << "\n";
-                    count++;
-                }
-            } else {
-                int start = max(0, total - limit);
-                for (int i = start; i < total; i++) {
-                    vector<string> cells = getRowCells(rowOrder[i]);
-                    for (size_t j = 0; j < nCols; j++) {
-                        cout << setw(colWidths[j]) << left << cells[j];
-                        if (j != nCols - 1)
-                            cout << " | ";
-                    }
-                    cout << "\n";
-                }
-            }
+            print(true,!fromBottom,limit);
         }
         // Mode 4: SHOW specific columns with optional WHERE/LIKE filtering.
         else {
@@ -846,9 +879,9 @@ public:
                     selectedColumns.push_back(colName);
             }
     
-            // if (selectedColumns.empty()) {
-            //     throw ("syntax_error: SHOW -> no columns specified.");
-            // }
+            if (selectedColumns.empty()) {
+                throw ("syntax_error: SHOW -> no columns specified.");
+            }
             
             // Determine if there's an extra clause.
             vector<string> extraTokens;
@@ -932,18 +965,25 @@ public:
             };
             
             // Print header row (centered) for selected columns.
+            cout << endl;
             for (size_t i = 0; i < selectedColumns.size(); i++) {
-                cout << centerSel(selectedColumns[i], selColWidths[i]);
-                if (i != selectedColumns.size() - 1)
-                    cout << " | ";
-            }
-            cout << "\n";
-            for (size_t i = 0; i < selectedColumns.size(); i++) {
+                if (i == 0) cout << "+-";
+                else if (i != selectedColumns.size()) cout << "-+-";
                 cout << string(selColWidths[i], '-');
-                if (i != selectedColumns.size() - 1)
-                    cout << "-+-";
             }
-            cout << "\n";
+            cout << "-+\n";
+            for (size_t i = 0; i < selectedColumns.size(); i++) {
+                if (i == 0) cout << "| ";
+                else if(i != selectedColumns.size()) cout << " | ";
+                cout << "\033[33m" << centerSel(selectedColumns[i], selColWidths[i]) << "\033[0m";
+            }
+            cout << " |\n";
+            for (size_t i = 0; i < selectedColumns.size(); i++) {
+                if (i == 0) cout << "+-";
+                else if (i != selectedColumns.size()) cout << "-+-";
+                cout << string(selColWidths[i], '-');
+            }
+            cout << "-+\n";
             
             // Parse WHERE conditions if extraTokens exist.
             vector<vector<Condition>> conditionGroups;
@@ -975,12 +1015,18 @@ public:
                     continue;
                 for (size_t i = 0; i < nSelected; i++) {
                     string cell = getCellValue(it->second, colIndices[i]);
+                    if(i == 0) cout << "| ";
+                    else if (i != nCols) cout << " | ";
                     cout << setw(selColWidths[i]) << left << cell;
-                    if (i != nSelected - 1)
-                        cout << " | ";
                 }
-                cout << "\n";
+                cout << " |\n";
             }
+            for (size_t i = 0; i < selectedColumns.size(); i++) {
+                if (i == 0) cout << "+-";
+                else if (i != selectedColumns.size()) cout << "-+-";
+                cout << string(selColWidths[i], '-');
+            }
+            cout << "-+\n";
         }
     }
     // End of show() function.
@@ -1023,24 +1069,7 @@ void Table::deleteColumn(const string &colName) {
 }
 void Table::deleteRowsByAdvancedConditions(const vector<vector<Condition>> &groups) {
     vector<string> rowsToDelete;
-    // --- Step 1: Validate column names before doing anything ---
-    // for (const auto &group : groups) {
-    //     for (const auto &cond : group) {
-    //         bool columnExists = false;
-    //         for (const auto &header : headers) {
-    //             if (header == cond.column) {
-    //                 columnExists = true;
-    //                 break;
-    //             }
-    //         }
-    //         if (!columnExists) {
-    //             cerr << "Logic Error: Column \"" + cond.column + "\" not found." << endl;
-    //             cout <<"Response: " << rowsToDelete.size() << " row(s) affected." << endl;
-    //             return;
-    //         }
-    //     }
-    // }
-    // Iterate over each row.
+
     for (const auto &id : rowOrder) {
         auto it = dataMap.find(id);
         if (it != dataMap.end() && evaluateAdvancedConditions(it->second, groups)) {
@@ -1070,9 +1099,15 @@ bool Table::evaluateAdvancedConditions(const Row &row, const vector<vector<Condi
             }
             if (colIndex == -1) { groupSatisfied = false; break; }
             string actual;
-            if (colIndex == primaryKeyIndex)
+            if (colIndex == primaryKeyIndex) {
                 actual = row.id;
-            else {
+            } 
+            else if (colIndex < primaryKeyIndex) {
+                // Before the primary key: use the same index.
+                actual = (colIndex < row.values.size()) ? row.values[colIndex] : "";
+            } 
+            else {  // colIndex > primaryKeyIndex
+                // After the primary key: the mapping is offset by one.
                 int idx = colIndex - 1;
                 actual = (idx < row.values.size()) ? row.values[idx] : "";
             }
@@ -1086,31 +1121,7 @@ bool Table::evaluateAdvancedConditions(const Row &row, const vector<vector<Condi
     }
     return false;
 }
-bool compareValues(const string &actual, const string &op, const string &expected) {
-    // Try to treat both values as numbers.
-    double a, b;
-    bool isNumeric = false;
-    try {
-        a = stod(actual);
-        b = stod(expected);
-        isNumeric = true;
-    } catch (...) {
-        // Not numeric; fall back to string comparison.
-    }
-    if (op == "=")
-        return actual == expected;
-    else if (op == ">" )
-        return isNumeric ? (a > b) : (actual > expected);
-    else if (op == "<")
-        return isNumeric ? (a < b) : (actual < expected);
-    else if (op == ">=")
-        return isNumeric ? (a >= b) : (actual >= expected);
-    else if (op == "<=")
-        return isNumeric ? (a <= b) : (actual <= expected);
-    else if (op == "!=")
-        return actual != expected;
-    return false;
-}
+
 vector<vector<Condition>> Table::parseAdvancedConditions(const vector<string>& tokens) {
     // so logically speaking for this cond1 AND cond2 OR cond3 AND cond4
     // this is how it gets stored in groups: 
@@ -1121,6 +1132,7 @@ vector<vector<Condition>> Table::parseAdvancedConditions(const vector<string>& t
     */
     vector<vector<Condition>> groups;
     vector<Condition> currentGroup;
+
 
     auto trimQuotes = [](const string &s) -> string {
         string trimmed = trim(s);
