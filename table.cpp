@@ -1,6 +1,5 @@
 #include "row.cpp"
 #include "library.cpp"  // Or your other necessary headers
-// #include "initiateData.cpp"
 
 struct Condition {
     string column;
@@ -8,6 +7,7 @@ struct Condition {
     string value;
 };
 extern string currentTable;
+extern string fs_path;
 string trim(const string &s) {
     size_t start = s.find_first_not_of(" \t"); // Finds the first character that is not a space or tab
     if(start == string::npos) return "";
