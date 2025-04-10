@@ -236,10 +236,11 @@ private:
             throw logic_error("Enter -> cannot be used in table/database.");
         }
         string db_name = getCommand();
+        fs::path db_path = fs::path(fs_path) / db_name;
         checkExtraTokens();
         try {
-            if (fs::exists(db_name) && fs::is_directory(db_name)) {
-                fs::current_path(db_name);
+            if (fs::exists(db_path) && fs::is_directory(db_path)) {
+                fs::current_path(db_path);
                 currentDatabase = db_name;
                 currentTable = "";
                 if (currentTableInstance) { // here istance of currentTableInstance is deleted. if somehow it is still there
@@ -287,7 +288,6 @@ private:
         if (currentTableInstance) {
             exitTable();
         }
-        cout << "EXIT(0)" << endl; // make sure to change the project name
         exitProgram = true;
     }
 

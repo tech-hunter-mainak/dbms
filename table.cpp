@@ -8,7 +8,6 @@ struct Condition {
     string value;
 };
 extern string currentTable;
-
 string trim(const string &s) {
     size_t start = s.find_first_not_of(" \t"); // Finds the first character that is not a space or tab
     if(start == string::npos) return "";
@@ -220,34 +219,50 @@ private:
     }
               
     // Reads metadata from "table_metadata.txt" in the current directory.
-    map<string, int> readTableMetadata() {
+    map<string, int> readTableMetadata(const string &metaFileName = "table_metadata.txt") {
         map<string, int> metadata;
-        string metaFileName = "table_metadata.txt";
         ifstream metaIn(metaFileName);
-        if (!metaIn.is_open())
-            return metadata; // Metadata file might not exist yet.
+        if (!metaIn.is_open()) {
+            // Metadata file might not exist yet; return an empty map.
+            return metadata;
+        }
         string line;
-        while(getline(metaIn, line)) {
-            if(line.empty())
+        while (getline(metaIn, line)) {
+            if (line.empty())
                 continue;
+            
             istringstream iss(line);
-            string tName;
+            string tableName, dash, rowsWord;
             int rowCount;
-            if (iss >> tName >> rowCount)
-                metadata[tName] = rowCount;
+            // Expecting the format: tableName - rowCount rows
+            if (iss >> tableName >> dash >> rowCount >> rowsWord) {
+                if (dash == "-" && rowsWord == "rows") {
+                    metadata[tableName] = rowCount;
+                }
+            }
         }
         metaIn.close();
         return metadata;
     }
-
-    // Updates the metadata file with the row count for this table.
-    void updateTableMetadata() {
-        string metaFileName = "table_metadata.txt";
-        map<string, int> metadata = readTableMetadata();
+    
+    // Updates the metadata file with the row count for a given table.
+    // The metadata file is updated with each entry in the following format:
+    // tableName - rowCount rows
+    void updateTableMetadata(const string &metaFileName = "table_metadata.txt") {
+        // Read current metadata.
+        string metaFilePath = (fs::path(fs_path) / (metaFileName + ".csv")).string();
+        map<string, int> metadata = readTableMetadata(metaFilePath);
+        // Update the metadata for the provided table.
         metadata[tableName] = static_cast<int>(rowOrder.size());
-        ofstream metaOut(metaFileName);
-        for (const auto &p : metadata) {
-            metaOut << p.first << " " << p.second << "\n";
+        
+        // Write the updated metadata back to the file.
+        ofstream metaOut(metaFilePath);
+        if (!metaOut.is_open()) {
+            return ;
+        }
+        for (const auto &entry : metadata) {
+            // Write in the format: tableName - rowCount rows
+            metaOut << entry.first << " - " << entry.second << " rows" << "\n";
         }
         metaOut.close();
     }

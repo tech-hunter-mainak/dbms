@@ -22,8 +22,9 @@ void init_database(string name) {
     if (!isValidDatabaseName(name)) {
         throw logic_error("Invalid database name! Only alphabets, numbers, and underscores are allowed.");
     }
-    if (!fs::exists(name)) {
-        if (fs::create_directory(name)) {
+    fs::path db_path = fs::path(fs_path) / name;
+    if (!fs::exists(db_path)) {
+        if (fs::create_directory(db_path)) {
             // cout << "Database created: " << name << endl;
             // cout << "To access it, use: ENTER " << name << endl;
         } else {
@@ -63,9 +64,10 @@ bool isValidConstraint(const string &constraint) {
 }
 // Erases a database directory (and all its contents) if it exists.
 void eraseDatabase(const string &dbName) {
-    if (fs::exists(dbName) && fs::is_directory(dbName)) {
-        fs::remove_all(dbName);
-        cout << "Database erased: " << fs::absolute(dbName).string() << endl;
+    fs::path db_path = fs::path(fs_path) / dbName; 
+    if (fs::exists(db_path) && fs::is_directory(db_path)) {
+        fs::remove_all(db_path);
+        // cout << "Database erased: " << fs::absolute(db_path).string() << endl; /////////- --- - - - - - ----- - - - --     ----------------    - - - ->>>> comment out this line
     } else {
         throw logic_error("Database not found: " + dbName);
     }
@@ -73,7 +75,7 @@ void eraseDatabase(const string &dbName) {
 
 // Erases a table by deleting its CSV file.
 void eraseTable(const string &tableName) {
-    string filename = tableName + ".csv";
+    string filename = (fs::path(fs_path) / (tableName + ".csv")).string();
     ifstream file(filename);
     if (file.good()) {
         file.close();
@@ -113,7 +115,7 @@ vector<string> tokenizeColumnDef(const string &colDef) {
         }
         if (!inQuotes && isspace(ch)) {
             if (!current.empty()) {
-                cout << current << endl;
+                // cout << current << endl;
                 tokens.push_back(trimStr(current));
                 current.clear();
             }
@@ -134,7 +136,9 @@ vector<string> tokenizeColumnDef(const string &colDef) {
 void make_table(list<string> &queryList, const string tableName) {
     string headersToken = "";
     headersToken = queryList.front();
+    if(trimStr(headersToken).empty()) throw ("syntax_error: Empty Column Definations");
     queryList.pop_front();
+    
     headersToken = trimStr(headersToken);
 
     string filename = tableName + ".csv";
@@ -252,17 +256,19 @@ void make_table(list<string> &queryList, const string tableName) {
 
 // Lists all databases (directories) in the root DBMS folder.
 void listDatabases() {
-    fs::path rootPath = fs_path;  // Root DBMS folder
+    fs::path rootPath = fs::path(fs_path);  // Root DBMS folder
     if (!fs::exists(rootPath)) {
         throw ("program_error: Installation went wrong unistall and install again.");
         
     }
+    bool databaseFound = false;
     for (const auto &entry : fs::directory_iterator(rootPath)) {
         if (entry.is_directory()) {
             string dbName = entry.path().filename().string();
             if (!dbName.empty() && dbName[0] == '.')// ✅ Skips hidden directories (starting with '.')
                 continue;
             int tableCount = 0;
+            databaseFound = true;
             for (const auto &f : fs::directory_iterator(entry.path())) { // fs::directory_iterator loops through each file in the db-name
                 string fileName = f.path().filename().string();
                 // ✅ Skips hidden files
@@ -274,36 +280,71 @@ void listDatabases() {
                     tableCount++;
             }
             cout << dbName << " - " << tableCount << " tb" << endl;
-        } else {
-            throw ("program_error: FILE crashed due to problems.");
         }
     }
+    if(!databaseFound) cout<<"\033[31mEmpty\033[0m"<<endl;
 }
 
 // Lists all tables (CSV files) in the current database directory.
 void listTables() {
-    fs::path dbPath = fs::current_path();  // Current directory is the selected database.
-    for (const auto &entry : fs::directory_iterator(dbPath)) {
-        if (entry.is_regular_file() && entry.path().extension() == ".csv") {
-            string tableName = entry.path().stem().string();
-            if (tableName == "table_metadata")
-                continue;
-            int rowCount = 0;
-            ifstream file(entry.path());
-            string line;
-            bool header = true;
-            while(getline(file, line)) {
-                if (header) { header = false; continue; }
-                if (!line.empty())
-                    rowCount++;
-            }
-            file.close();
-            cout << tableName << " - " << rowCount << " rows" << endl;
-        } else {
-            throw ("program_error: FILE crashed due to problems.");
+    fs::path dbPath = fs::path(fs_path) / currentDatabase;  // Current directory is the selected database.
+    fs::path metaPath = dbPath / "table_metadata.txt";
+
+    // Check if the table_metadata.txt file exists.
+    if (fs::exists(metaPath) && fs::is_regular_file(metaPath)) {
+        ifstream metaFile(metaPath);
+        if (!metaFile.is_open()) {
+            // throw ("program_error: unable to open table_metadata.txt");
         }
+        string line;
+        bool tableFound = false;
+        // Read and log each non-empty line from table_metadata.txt.
+        while (getline(metaFile, line)) {
+            if (!line.empty()) {
+                cout << line << endl;
+                tableFound = true;
+            }
+        }
+        metaFile.close();
+        // If metadata exists but is empty, log "no tables".
+        if (!tableFound) {
+            cout << "\033[31mEmpty Database\033[0m" << endl;
+        }
+    }else {
+        cout << "\033[31mEmpty Database\033[0m" << endl;
     }
+    // else {  // If table_metadata.txt does not exist, fallback to listing CSV files.
+    //     bool tableFound = false;
+    //     for (const auto &entry : fs::directory_iterator(dbPath)) {
+    //         if (entry.is_regular_file() && entry.path().extension() == ".csv") {
+    //             string tableName = entry.path().stem().string();
+    //             // Skip any CSV whose stem is "table_metadata".
+    //             if (tableName == "table_metadata")
+    //                 continue;
+    //             int rowCount = 0;
+    //             ifstream file(entry.path());
+    //             string line;
+    //             bool header = true;
+    //             while(getline(file, line)) {
+    //                 if (header) {
+    //                     header = false;
+    //                     continue;
+    //                 }
+    //                 if (!line.empty()){
+    //                     tableFound = true;
+    //                     rowCount++;
+    //                 }
+    //             }
+    //             file.close();
+    //             cout << tableName << " - " << rowCount << " rows" << endl;
+    //         }
+    //         if (!tableFound) {
+    //             cout << "\033[31mEmpty Database\033[0m" << endl;
+    //         }
+    //     }
+    // }
 }
+
 
 /*     Done    */
 // Splits a list of tokens into separate queries based on the pipe ("|") symbol.
