@@ -6,14 +6,14 @@ g++ -std=c++17 main.cpp -o main
 cmake ..
 make
 # This is to create the final .dmg file
-create-dmg output.dmg build/minidb.app \
+create-dmg output.dmg build/qilodb.app \
   --overwrite \
-  --dmg-title 'MiniDB Installer' \
+  --dmg-title 'qilodb Installer' \
   --app-drop-link \
   --icon-size 100 \
   --window-size 500 300
 # this is to code sign my app:
-codesign --deep --sign "Your Developer ID" build/minidb.app
+codesign --deep --sign "Your Developer ID" build/qilodb.app
 # notorize my app via apple:
 	•	Notarize your app via Apple:
 	•	You’ll need an Apple Developer ID.

@@ -1,27 +1,37 @@
+#include <stdexcept>
+#include <cstdlib>
+#include <string>
+#include <iostream>
+#include <list>
+#include <filesystem>
+
+
+#ifdef _WIN32
+#ifdef byte
+#undef byte
+#endif
+#include <windows.h>
+#include <shlobj.h>
+#include <cstddef>
+#else
+#include <unistd.h>
+#include <pwd.h>
+#endif
+
 #include "parser.cpp"
 
 using namespace std;
 namespace fs = std::filesystem;
-
 bool exitProgram = false;
-#include <cstdlib>
-#include <string>
-
-#ifdef _WIN32
-    #include <windows.h>
-    #include <shlobj.h>
-#elif __APPLE__ || __linux__
-    #include <unistd.h>
-    #include <pwd.h>
-#endif
 
 std::string getHomeDirectory() {
 #ifdef _WIN32
     char path[MAX_PATH];
+    // CSIDL_PROFILE points to the user's profile folder.
     if (SUCCEEDED(SHGetFolderPathA(NULL, CSIDL_PROFILE, NULL, 0, path))) {
         return std::string(path);
     }
-    return "";  // fallback
+    return "";  // fallback if getting profile path fails
 #else
     const char* homedir;
     if ((homedir = getenv("HOME")) == nullptr) {
@@ -33,17 +43,21 @@ std::string getHomeDirectory() {
 
 std::string getDBMSPath() {
     std::string home = getHomeDirectory();
-    std::string dbmsPath = home + "/Desktop/DBMS";
+    #ifdef _WIN32
+        std::string dbmsPath = home + "\\QiloDB";
+    #else
+        std::string dbmsPath = home + "/Desktop/QiloDB";
+    #endif
     return dbmsPath;
 }
 
 // Global variable
 std::string fs_path = getDBMSPath();   // or whatever the root directory should be
-string currentDatabase = "";
-string currentTable = "";
+std::string currentDatabase = "";
+std::string currentTable = "";
 int main(int argc, char const *argv[])
 {
-    cout << "\033[1;35mWelcome to the MiniDB! Type your commands below.\033[0m" << endl;
+    cout << "\033[1;35mWelcome to the QiloDB! Type your commands below.\033[0m" << endl;
     // string dbmsFolder = "DBMS"; // ----------->>>>>>> set the required absolute path
     if (!fs::exists(fs_path))
     {
