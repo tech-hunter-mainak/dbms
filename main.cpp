@@ -7,9 +7,9 @@
 
 
 #ifdef _WIN32
-#ifdef byte
-#undef byte
-#endif
+// #ifdef byte
+// #undef byte
+// #endif
 #include <windows.h>
 #include <shlobj.h>
 #include <cstddef>
