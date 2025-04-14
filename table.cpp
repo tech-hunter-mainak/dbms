@@ -250,7 +250,7 @@ private:
     // tableName - rowCount rows
     void updateTableMetadata(const string &metaFileName = "table_metadata.txt") {
         // Read current metadata.
-        string metaFilePath = (fs::path(fs_path) / (metaFileName + ".csv")).string();
+        string metaFilePath = (fs::path(fs_path) / (metaFileName)).string();
         map<string, int> metadata = readTableMetadata(metaFilePath);
         // Update the metadata for the provided table.
         metadata[tableName] = static_cast<int>(rowOrder.size());
@@ -405,7 +405,9 @@ public:
         file.close();
     }
     #include <sstream>  // For istringstream
-
+    void updateMetaFile(){
+        updateTableMetadata();
+    }
     unordered_set<string> parseConstraints(const string &constraintStr) {
         unordered_set<string> constraints;
         istringstream ss(constraintStr);

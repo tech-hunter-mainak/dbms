@@ -59,6 +59,7 @@ private:
             // }
             // here stopeed 
             currentTableInstance = new Table(currentTable);
+            currentTableInstance->updateMetaFile();
         }
     }    
     void processErase() {

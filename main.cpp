@@ -46,7 +46,7 @@ std::string getDBMSPath() {
     #ifdef _WIN32
         std::string dbmsPath = home + "\\QiloDB";
     #else
-        std::string dbmsPath = home + "/Desktop/QiloDB";
+        std::string dbmsPath = home + "/Library/Application Support/qiloDB/data";
     #endif
     return dbmsPath;
 }
