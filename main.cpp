@@ -5,7 +5,6 @@
 #include <list>
 #include <filesystem>
 
-
 #ifdef _WIN32
 #ifdef byte
 #undef byte
@@ -23,6 +22,7 @@
 using namespace std;
 namespace fs = std::filesystem;
 bool exitProgram = false;
+std::string aesKey = "";
 
 std::string getHomeDirectory() {
 #ifdef _WIN32
@@ -51,12 +51,56 @@ std::string getDBMSPath() {
     return dbmsPath;
 }
 
+bool verifyAESKey() {
+    std::string inputKey;
+    std::cout << "\033[1;33mEnter AES Key (32-byte password): \033[0m";
+    std::getline(std::cin, inputKey);
+
+    // Construct path to pass.txt
+    std::string passFilePath = getDBMSPath(); // e.g., ".../Library/Application Support/qiloDB/data"
+    passFilePath = passFilePath.substr(0, passFilePath.find_last_of("/\\")); // strip /data
+    passFilePath += "/pass.txt";
+
+    std::ifstream passFile(passFilePath);
+    if (!passFile) {
+        std::cerr << "\033[31mFailed to open password file at: " << passFilePath << "\033[0m" << std::endl;
+        return false;
+    }
+
+    std::string storedHash;
+    std::getline(passFile, storedHash);
+    passFile.close();
+
+    // Hash user input and compare
+    std::string hashedInput = sha256WithSalt(inputKey, "qiloDBnits");
+    cout << storedHash << endl;
+    cout << hashedInput << endl;
+    if (hashedInput != storedHash) {
+        std::cerr << "\033[31mIncorrect AES key. Try again: \033[0m" << std::endl;
+        verifyAESKey();
+    }
+
+    std:: string key = sha256WithSalt(hashedInput,"heyItsqilo");
+    // Pad/truncate to 32 bytes
+    if (key.length() < 32) {
+        key.append(32 - key.length(), '0');
+    } else if (key.length() > 32) {
+        key = key.substr(0, 32);
+    }
+    aesKey = key;
+    return true;
+}
+
 // Global variable
 std::string fs_path = getDBMSPath();   // or whatever the root directory should be
 std::string currentDatabase = "";
 std::string currentTable = "";
+
 int main(int argc, char const *argv[])
 {
+    if (!verifyAESKey()) {
+        return 1;
+    }
     cout << "\033[1;35mWelcome to the QiloDB! Type your commands below.\033[0m" << endl;
     // string dbmsFolder = "DBMS"; // ----------->>>>>>> set the required absolute path
     if (!fs::exists(fs_path))

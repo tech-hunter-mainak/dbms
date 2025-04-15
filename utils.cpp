@@ -1,10 +1,14 @@
 #include "library.cpp"
 
+#include <stdexcept>
+#include <string>
+#define AES_BLOCK_SIZE 16
 // Global variables used for session context.
 extern string fs_path;         // Root DBMS folder path
 extern string currentDatabase; // Currently selected database name (empty if none)
 extern string currentTable;    // Currently selected table name (empty if none)
 extern bool exitProgram;
+extern string aesKey;
 //--------------------------------------------------------------------------------
 // Database & Table Creation / Erasure Functions
 //--------------------------------------------------------------------------------
@@ -16,6 +20,41 @@ bool isValidDatabaseName(const string& name) {
     // Only allow alphabets (upper and lower case), numbers, and underscores.
     regex validPattern("^[A-Za-z0-9_]+$");
     return regex_match(name, validPattern);
+}
+void removeTableMetadataEntry(const string &tr,const string &metaFileName = "table_metadata.txt") {
+    // Construct the full path to metadata file.
+    string metaFilePath = (fs::path(fs_path) / currentDatabase / metaFileName).string();
+
+    // Read all lines from the metadata file.
+    vector<string> lines;
+    ifstream metaIn(metaFilePath);
+    if (!metaIn.is_open()) {
+        // File might not exist (or be created later), so nothing to remove.
+        return;
+    }
+    string line;
+    while (getline(metaIn, line)) {
+        // Use a stringstream to extract the first token (table name).
+        istringstream iss(line);
+        string token;
+        iss >> token;
+        // Only keep lines that do NOT refer to the table we are erasing.
+        if (token != tr) {
+            lines.push_back(line);
+        }
+    }
+    metaIn.close();
+
+    // Rewrite the metadata file without the removed table.
+    ofstream metaOut(metaFilePath);
+    if (!metaOut.is_open()) {
+        // If we cannot open the file for writing, just return.
+        return;
+    }
+    for (const auto &l : lines) {
+        metaOut << l << "\n";
+    }
+    metaOut.close();
 }
 
 void init_database(string name) {
@@ -34,6 +73,105 @@ void init_database(string name) {
         throw  logic_error("Database already exists! Use ENTER " + name + " to access it.");
     }
 }
+#include <openssl/evp.h>
+#include <openssl/rand.h>
+#include <openssl/sha.h>
+std::string sha256(const std::string& str) {
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    SHA256(reinterpret_cast<const unsigned char*>(str.c_str()), str.size(), hash);
+
+    std::stringstream ss;
+    for (int i = 0; i < SHA256_DIGEST_LENGTH; ++i)
+        ss << std::hex << std::setw(2) << std::setfill('0') << (int)hash[i];
+
+    return ss.str();
+}
+std::string sha256WithSalt(const std::string& input, const std::string& salt) {
+    const int rounds = 10;
+    // Initial hash: concatenate password and salt
+    std::string current = input + salt;
+    // Do the first hash
+    current = sha256(current);
+    
+    // Do the remaining rounds: each round concatenates the previous hash and salt
+    for (int i = 2; i <= rounds; i++) {
+        if( i % 2 == 0){
+            current = sha256(salt + current);
+        } else {
+            current = sha256(current + salt);
+        }
+        
+    }
+    return current;
+}
+// Encrypts plainText using AES-256-CBC.
+// The 'key' must be 32 bytes (256 bits). 'ivOut' is set to the random IV.
+std::string aesEncrypt(const std::string &plainText, std::string &ivOut) {
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) throw std::runtime_error("Failed to create encryption context");
+
+    // Generate a random IV.
+    ivOut.resize(AES_BLOCK_SIZE, '\0');
+    if (!RAND_bytes(reinterpret_cast<unsigned char*>(&ivOut[0]), AES_BLOCK_SIZE))
+        throw std::runtime_error("Failed to generate IV");
+
+    if (1 != EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), NULL,
+                                reinterpret_cast<const unsigned char*>(aesKey.c_str()),
+                                reinterpret_cast<const unsigned char*>(ivOut.c_str())))
+        throw std::runtime_error("Encryption initialization failed");
+
+    std::string cipherText;
+    cipherText.resize(plainText.size() + AES_BLOCK_SIZE);
+    int outLen1 = 0;
+    if (1 != EVP_EncryptUpdate(ctx,
+                               reinterpret_cast<unsigned char*>(&cipherText[0]),
+                               &outLen1,
+                               reinterpret_cast<const unsigned char*>(plainText.c_str()),
+                               plainText.size()))
+        throw std::runtime_error("Encryption update failed");
+
+    int outLen2 = 0;
+    if (1 != EVP_EncryptFinal_ex(ctx,
+                                 reinterpret_cast<unsigned char*>(&cipherText[0]) + outLen1,
+                                 &outLen2))
+        throw std::runtime_error("Encryption finalization failed");
+
+    EVP_CIPHER_CTX_free(ctx);
+    cipherText.resize(outLen1 + outLen2);
+    return cipherText;
+}
+
+// Decrypts cipherText (which was encrypted using AES-256-CBC) using the given key and iv.
+std::string aesDecrypt(const std::string &cipherText, const std::string &iv) {
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) throw std::runtime_error("Failed to create decryption context");
+
+    if (1 != EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), NULL,
+                                reinterpret_cast<const unsigned char*>(aesKey.c_str()),
+                                reinterpret_cast<const unsigned char*>(iv.c_str())))
+        throw std::runtime_error("Decryption initialization failed");
+
+    std::string plainText;
+    plainText.resize(cipherText.size());
+    int outLen1 = 0;
+    if (1 != EVP_DecryptUpdate(ctx,
+                               reinterpret_cast<unsigned char*>(&plainText[0]),
+                               &outLen1,
+                               reinterpret_cast<const unsigned char*>(cipherText.c_str()),
+                               cipherText.size()))
+        throw std::runtime_error("Decryption update failed");
+
+    int outLen2 = 0;
+    if (1 != EVP_DecryptFinal_ex(ctx,
+                                 reinterpret_cast<unsigned char*>(&plainText[0]) + outLen1,
+                                 &outLen2))
+        throw std::runtime_error("Decryption finalization failed");
+
+    EVP_CIPHER_CTX_free(ctx);
+    plainText.resize(outLen1 + outLen2);
+    return plainText;
+}
+
 
 // Helper function: trim whitespace from both ends of a string.
 // This is actually not required can be removed.
@@ -75,7 +213,7 @@ void eraseDatabase(const string &dbName) {
 
 // Erases a table by deleting its CSV file.
 void eraseTable(const string &tableName) {
-    string filename = (fs::path(fs_path) / (tableName + ".csv")).string();
+    string filename = (fs::path(fs_path) / currentDatabase / (tableName + ".bin")).string();
     ifstream file(filename);
     if (file.good()) {
         file.close();
@@ -89,7 +227,7 @@ void eraseTable(const string &tableName) {
     }
 }
 bool eraseTable(const string &tableName, int) { // function overloading 
-    string filename = tableName + ".csv";
+    string filename = tableName + ".bin";
     ifstream file(filename);
     if (file.good()) {
         file.close();
@@ -133,44 +271,39 @@ vector<string> tokenizeColumnDef(const string &colDef) {
 // For each column, the header is written as: 
 //    columnName(DATATYPE)(CONSTRAINT1)(CONSTRAINT2)...
 // Every column must have at least a column name and a datatype.
+// Make sure you have included necessary headers and defined aesEncrypt as shown previously.
+
+// The updated make_table function now takes a key as an argument.
 void make_table(list<string> &queryList, const string tableName) {
-    string headersToken = "";
-    headersToken = queryList.front();
-    if(trimStr(headersToken).empty()) throw ("syntax_error: Empty Column Definations");
+    // Get the column definitions from the query.
+    string headersToken = queryList.front();
+    if (trimStr(headersToken).empty()) 
+        throw ("syntax_error: Empty Column Definations");
     queryList.pop_front();
     
     headersToken = trimStr(headersToken);
 
-    string filename = tableName + ".csv";
-    ifstream file(filename); // make this file absolute if needed //////////////////////
+    string filename = tableName + ".bin";
+    ifstream file(filename);
     if (file.good()) {
         throw logic_error("Table already exists with name " + filename);
     }
     file.close();
 
-
+    // Build the final CSV header row.
     string finalHeader;
     int primaryKeyIndex = -1;
 
+    vector<string> formattedCols;
     if (!headersToken.empty()) {
         vector<string> colDefs;
         istringstream headerStream(headersToken);
-        /*istringstream is a class from the <sstream> header. 
-            It allows you to treat a string like a stream, so you can extract values from it just like you’d read from cin or a file.
-        */ 
         string colDef;
         while (getline(headerStream, colDef, ',')) {
             colDef = trimStr(colDef);
-            // Reads from headerStream, one comma-separated value at a time. like this 
-            // " id INT PRIMARY_KEY"
-            // " name VARCHAR"
-            // " age INT"
-            // " department VARCHAR"
             if (!colDef.empty())
                 colDefs.push_back(colDef);
         }
-
-        vector<string> formattedCols;
         
         int index = 0;
         for (const auto &def : colDefs) {
@@ -184,18 +317,19 @@ void make_table(list<string> &queryList, const string tableName) {
             if (!isValidDataType(trimStr(dataType))) {
                 throw invalid_argument("Invalid data type for column \"" + colName + "\" : " + dataType);
             }
+            
             string constraints = "";
             bool isPrimaryKey = false;
             unordered_set<string> consSet;
             for (size_t i = 2; i < tokens.size(); i++) {
                 string cons = tokens[i];
                 transform(cons.begin(), cons.end(), cons.begin(), ::toupper);
-                if(cons == "DEFAULT"){
-                    if(consSet.count(cons)){
+                if (cons == "DEFAULT") {
+                    if (consSet.count(cons)) {
                         throw ("WARNING: Multiple " + cons + " definitions found.");
                     }
                     i += 1;
-                    if( i < tokens.size()){
+                    if (i < tokens.size()) {
                         string defaultValue = tokens[i];
                         consSet.insert(cons);
                         constraints += "(" + cons + '#' + defaultValue + ")";
@@ -207,19 +341,17 @@ void make_table(list<string> &queryList, const string tableName) {
                 if (!isValidConstraint(cons)) {
                     throw invalid_argument("Invalid constraint for column \"" + colName + "\" : " + cons);
                 }
-
                 if (cons == "PRIMARY") {
                     if (primaryKeyIndex != -1) {
                         throw invalid_argument("Multiple PRIMARY definitions found. Only one PRIMARY is allowed.");
                     }
                     if (dataType != "INT" && dataType != "BIGINT") {
-                        throw invalid_argument("Only INT/BIGINT columns can be defined as PRIMARY. Column \"" + colName + "\" has type " + dataType + "." );
+                        throw invalid_argument("Only INT/BIGINT columns can be defined as PRIMARY. Column \"" + colName + "\" has type " + dataType + ".");
                     }
                     isPrimaryKey = true;
                     primaryKeyIndex = index;
                 }
-                
-                if(consSet.count(cons)){
+                if (consSet.count(cons)) {
                     throw ("WARNING: Multiple " + cons + " definitions found.");
                 } else {
                     consSet.insert(cons);
@@ -227,28 +359,48 @@ void make_table(list<string> &queryList, const string tableName) {
                 }
             }
             consSet.clear();
+            // Reconstruct the column in CSV format: name(dataType)(constraint1)...(constraintN)
             string formatted = colName + "(" + dataType + ")" + constraints;
             formattedCols.push_back(formatted);
             index++;
         }
+        // If no PRIMARY key was provided, add one automatically.
         if (primaryKeyIndex == -1) {
             primaryKeyIndex = 0;
             formattedCols.insert(formattedCols.begin(), "self_pk(INT)(PRIMARY)");
         }
+        // Join all formatted columns with a comma delimiter.
         for (size_t i = 0; i < formattedCols.size(); i++) {
             finalHeader += formattedCols[i];
             if (i != formattedCols.size() - 1)
                 finalHeader += ",";
         }
     }
-    ofstream newTable(filename);
+    
+    // Create the CSV string (only header row for now).
+    string csvData = finalHeader + "\n";
+
+    // --- AES Encryption Step ---
+    // Instead of using the simple XOR encryption, now use aesEncrypt.
+    // aesEncrypt accepts the plaintext (csvData), the AES key, and returns the ciphertext,
+    // while also setting the IV (initialization vector) passed by reference.
+    std::string iv;  // IV will be generated inside aesEncrypt.
+    std::string cipherText = aesEncrypt(csvData, iv);
+    
+    // --- Write Encrypted Data to the Binary File ---
+    // We will write the IV first (fixed size: AES_BLOCK_SIZE) and then the ciphertext.
+    ofstream newTable(filename, ios::binary);
     if (!newTable.is_open()) {
         throw ("program_error: Failed to create table!");
     }
-    newTable << finalHeader << "\n";
+    newTable.write(iv.c_str(), AES_BLOCK_SIZE);
+    newTable.write(cipherText.c_str(), cipherText.size());
     newTable.close();
-    cout << "\033[32mres: Table Created Successfully.\033[0m"<< endl;
+    
+    cout << "\033[32mres: Table Created Successfully.\033[0m" << endl;
 }
+
+
 
 //--------------------------------------------------------------------------------
 // Listing & Navigation Functions
@@ -275,7 +427,7 @@ void listDatabases() {
                 if (!fileName.empty() && fileName[0] == '.')
                     continue;
                 // Count CSV files (tables), ignoring the metadata file.
-                if (f.is_regular_file() && f.path().extension() == ".csv" &&
+                if (f.is_regular_file() && f.path().extension() == ".bin" &&
                     f.path().stem().string() != "table_metadata")
                     tableCount++;
             }

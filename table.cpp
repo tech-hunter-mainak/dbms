@@ -8,6 +8,8 @@ struct Condition {
 };
 extern string currentTable;
 extern string fs_path;
+extern string currentDatabase;
+extern string aesKey;
 string trim(const string &s) {
     size_t start = s.find_first_not_of(" \t"); // Finds the first character that is not a space or tab
     if(start == string::npos) return "";
@@ -217,6 +219,77 @@ private:
         }
         file.close();
     }
+    void writeToFileBinaryAES(const std::string &key) { // no need of specifying key 
+        // Build the CSV-formatted string.
+        std::ostringstream oss;
+        
+        // Build the header row exactly as in writeToFile().
+        for (size_t i = 0; i < headers.size(); i++) {
+            std::string colName = headers[i];
+            auto meta = columnMeta[colName];
+            // Reconstruct header with data type.
+            std::string headerLine = colName + "(" + meta.first + ")";
+            
+            // Append each constraint.
+            if (!meta.second.empty()) {
+                std::istringstream ss(meta.second);
+                std::string constraint;
+                while (getline(ss, constraint, ',')) {
+                    constraint = trim(constraint);  // assuming trim() removes surrounding spaces.
+                    if (!constraint.empty())
+                        headerLine += "(" + constraint + ")";
+                }
+            }
+            oss << headerLine;
+            if (i < headers.size() - 1)
+                oss << ",";
+        }
+        oss << "\n";
+        
+        // Reconstruct each data row as in writeToFile().
+        for (const auto &id : rowOrder) {
+            auto it = dataMap.find(id);
+            if (it != dataMap.end()) {
+                for (size_t i = 0; i < headers.size(); i++) {
+                    std::string cell;
+                    if ((int)i == primaryKeyIndex) {
+                        cell = it->first; // primary key value.
+                    } else if ((int)i < primaryKeyIndex) {
+                        cell = (i < it->second.values.size()) ? it->second.values[i] : "";
+                    } else { // Adjust for omitted primary key in Row.values.
+                        int valIndex = i - 1;
+                        cell = (valIndex < it->second.values.size()) ? it->second.values[valIndex] : "";
+                    }
+                    oss << cell;
+                    if (i < headers.size() - 1)
+                        oss << ",";
+                }
+                oss << "\n";
+            }
+        }
+        
+        // Convert the CSV data to a string.
+        std::string csvData = oss.str();
+        
+        // Encrypt the CSV data using AES.
+        std::string iv;
+        std::string cipherText = aesEncrypt(csvData, iv);
+        
+        // Write the IV and ciphertext to the binary file.
+        std::ofstream out(filename, std::ios::binary);
+        if (!out.is_open()) {
+            throw std::runtime_error("program_error: could not commit changes (binary write failed).");
+        }
+        // First write the IV (fixed AES_BLOCK_SIZE).
+        out.write(iv.c_str(), AES_BLOCK_SIZE);
+        // Then write the ciphertext.
+        out.write(cipherText.c_str(), cipherText.size());
+        out.close();
+        
+        unsavedChanges = false;
+        std::cout << "\033[32mres: Commit (binary with AES) successful.\033[0m" << std::endl;
+    }    
+    
               
     // Reads metadata from "table_metadata.txt" in the current directory.
     map<string, int> readTableMetadata(const string &metaFileName = "table_metadata.txt") {
@@ -250,7 +323,7 @@ private:
     // tableName - rowCount rows
     void updateTableMetadata(const string &metaFileName = "table_metadata.txt") {
         // Read current metadata.
-        string metaFilePath = (fs::path(fs_path) / (metaFileName)).string();
+        string metaFilePath = (fs::path(fs_path) / currentDatabase / (metaFileName)).string();
         map<string, int> metadata = readTableMetadata(metaFilePath);
         // Update the metadata for the provided table.
         metadata[tableName] = static_cast<int>(rowOrder.size());
@@ -271,9 +344,9 @@ public:
     // Constructor: given a table name, it sets filename and retrieves data.
     /*           DONE            */
     Table(const string &tName) 
-      : tableName(tName), filename(tName + ".csv"), columnWidth(15) ,unsavedChanges(false)
+      : tableName(tName), filename(tName + ".bin"), columnWidth(15) ,unsavedChanges(false)
     {
-        retrieveData();
+        retrieveDataBinaryAES(aesKey); // no need of key pass i
     }
 
     // Destructor: clear in-memory data to prevent leaks.
@@ -404,6 +477,116 @@ public:
         }
         file.close();
     }
+    void retrieveDataBinaryAES(const std::string &key) {
+        // Clear current in-memory structures.
+        dataMap.clear();
+        rowOrder.clear();
+        headers.clear();
+        columnMeta.clear();
+        primaryKeyIndex = -1;
+        
+        // Open the binary file.
+        std::ifstream in(filename, std::ios::binary);
+        if (!in.is_open()) {
+            // File doesn't exist: likely a new table.
+            return;
+        }
+        
+        // Read the IV first.
+        std::string iv(AES_BLOCK_SIZE, '\0');
+        in.read(&iv[0], AES_BLOCK_SIZE);
+        
+        // Read the remainder of the file as ciphertext.
+        std::string cipherText((std::istreambuf_iterator<char>(in)),
+                                 std::istreambuf_iterator<char>());
+        in.close();
+        
+        // Decrypt the CSV data.
+        std::string csvData = aesDecrypt(cipherText, iv);
+        
+        // Use an istringstream to parse the CSV text.
+        std::istringstream iss(csvData);
+        std::string line;
+        bool isHeader = true;
+        
+        while (getline(iss, line)) {
+            std::stringstream ss(line);
+            std::vector<std::string> rowValues;
+            std::string value;
+            while (getline(ss, value, ',')) {
+                rowValues.push_back(value);
+            }
+            
+            if (isHeader) {
+                // Parse header row to extract plain column names and metadata.
+                int colIndex = 0;
+                for (auto &col : rowValues) {
+                    size_t firstParen = col.find('(');
+                    size_t firstClose = col.find(')', firstParen);
+                    if (firstParen != std::string::npos && firstClose != std::string::npos) {
+                        // The plain column name is before the first '('.
+                        std::string colName = trim(col.substr(0, firstParen));
+                        // Extract the data type from within the first pair of parentheses.
+                        std::string dataType = trim(col.substr(firstParen + 1, firstClose - firstParen - 1));
+                        
+                        // Extract additional constraints.
+                        std::vector<std::string> constraints;
+                        size_t currentPos = firstClose + 1;
+                        while (true) {
+                            size_t open = col.find('(', currentPos);
+                            size_t close = col.find(')', open);
+                            if (open == std::string::npos || close == std::string::npos)
+                                break;
+                            std::string constraint = trim(col.substr(open + 1, close - open - 1));
+                            constraints.push_back(constraint);
+                            currentPos = close + 1;
+                        }
+                        
+                        // Rebuild constraints as a comma-separated string.
+                        std::string allConstraints;
+                        for (size_t i = 0; i < constraints.size(); ++i) {
+                            allConstraints += constraints[i];
+                            if (i != constraints.size() - 1)
+                                allConstraints += ",";
+                        }
+                        
+                        headers.push_back(colName);
+                        columnMeta[colName] = {dataType, allConstraints};
+                        
+                        // Check if this column is designated as the PRIMARY key.
+                        for (auto &c : constraints) {
+                            if (c == "PRIMARY") {
+                                primaryKeyIndex = colIndex;
+                                break;
+                            }
+                        }
+                        colIndex++;
+                    }
+                }
+                isHeader = false;
+                if (primaryKeyIndex == -1 && !headers.empty()) {
+                    primaryKeyIndex = 0;
+                }
+            } else {
+                if (!rowValues.empty()) {
+                    // Verify the row has the correct number of columns.
+                    if (rowValues.size() != headers.size()) {
+                        continue;  // Skip this row.
+                    }
+                    // Extract the primary key and construct a row excluding it.
+                    std::string pkValue = rowValues[primaryKeyIndex];
+                    std::vector<std::string> otherValues;
+                    for (size_t i = 0; i < rowValues.size(); i++) {
+                        if ((int)i == primaryKeyIndex)
+                            continue;
+                        otherValues.push_back(rowValues[i]);
+                    }
+                    dataMap[pkValue] = Row(pkValue, otherValues);
+                    rowOrder.push_back(pkValue);
+                }
+            }
+        }
+    }    
     #include <sstream>  // For istringstream
     void updateMetaFile(){
         updateTableMetadata();
@@ -580,14 +763,14 @@ public:
         unsavedChanges = true;
     }   
     void commitTransaction() {
-        writeToFile();
+        writeToFileBinaryAES(aesKey);
         updateTableMetadata();
         unsavedChanges = false;
         cout << "\033[32mres: Commit successful.\033[0m" << endl;
     }
     void rollbackTransaction() {
         if(unsavedChanges){
-            retrieveData();
+            retrieveDataBinaryAES(aesKey);
         }else{
             cerr << "WARNING: No changes made to table." << endl;
         }

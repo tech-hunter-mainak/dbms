@@ -75,6 +75,7 @@ private:
         // Inside a database: erase a table.
         else {
             eraseTable(name);
+            removeTableMetadataEntry(name);
             if (currentTable == name)
                 currentTable = "";
             if (currentTableInstance) { //////////////    TABLE INSTANCE IS HERE
@@ -265,16 +266,16 @@ private:
         string table_name = getCommand();
         checkExtraTokens();
         try {
-            string filename = table_name + ".csv";
+            string filename = table_name + ".bin";
             ifstream file(filename);
             if (file.good()) {
                 file.close();
-                currentTable = table_name;
                 // if (currentTableInstance) {
                 //     delete currentTableInstance;
                 //     currentTableInstance = nullptr;
                 // }
                 currentTableInstance = new Table(table_name);
+                currentTable = table_name;
             } else {
                 throw logic_error("table \"" + table_name + "\" does not exist.");
             }

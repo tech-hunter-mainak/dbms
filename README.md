@@ -30,3 +30,4 @@ codesign --deep --sign "Your Developer ID" build/minidb.app
 	•	You’ll need an Apple Developer ID.
 	•	You can notarize via xcrun altool or Xcode.
 	•	Let me know if you want a step-by-step for that.
+  g++ -std=c++17 main.cpp -I/opt/homebrew/opt/openssl@3/include -L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -o qiloDB
