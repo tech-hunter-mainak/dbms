@@ -287,7 +287,6 @@ private:
         out.close();
         
         unsavedChanges = false;
-        std::cout << "\033[32mres: Commit (binary with AES) successful.\033[0m" << std::endl;
     }    
     
               

@@ -2,6 +2,9 @@
 
 #include <stdexcept>
 #include <string>
+#include <openssl/evp.h>
+#include <openssl/rand.h>
+#include <openssl/sha.h>
 #define AES_BLOCK_SIZE 16
 // Global variables used for session context.
 extern string fs_path;         // Root DBMS folder path
@@ -73,9 +76,6 @@ void init_database(string name) {
         throw  logic_error("Database already exists! Use ENTER " + name + " to access it.");
     }
 }
-#include <openssl/evp.h>
-#include <openssl/rand.h>
-#include <openssl/sha.h>
 std::string sha256(const std::string& str) {
     unsigned char hash[SHA256_DIGEST_LENGTH];
     SHA256(reinterpret_cast<const unsigned char*>(str.c_str()), str.size(), hash);
@@ -89,7 +89,7 @@ std::string sha256(const std::string& str) {
 std::string sha256WithSalt(const std::string& input, const std::string& salt) {
     const int rounds = 10;
     // Initial hash: concatenate password and salt
-    std::string current = input + salt;
+    std::string current = salt + input + salt;
     // Do the first hash
     current = sha256(current);
     
@@ -405,7 +405,64 @@ void make_table(list<string> &queryList, const string tableName) {
 //--------------------------------------------------------------------------------
 // Listing & Navigation Functions
 //--------------------------------------------------------------------------------
+void processHelp() {
+    // ANSI color codes
+    const string TIT   = "\033[1;36m";
+    const string HDR   = "\033[1;33m";
+    const string CMD   = "\033[1;32m";
+    const string ARG   = "\033[0;37m";
+    const string RESET = "\033[0m";
 
+    const int CMD_WIDTH = 15;  // tightened from 30 → 15
+
+    cout << "\n" << TIT << "============================ qiloDB Help ==========================" << RESET << "\n\n";
+
+    auto printLine = [&](const string &command, const string &desc) {
+        cout << "  "
+             << CMD << left << setw(CMD_WIDTH) << command << RESET
+             << " - " << desc << "\n";
+    };
+
+    cout << HDR << "Database Commands:" << RESET << "\n";
+    printLine("init <db>",      "Create a new database.");
+    printLine("erase <db>",     "Delete a database (only at root).");
+    printLine("enter <db>",     "Select/use a database.");
+    printLine("exit",                 "Exit context (table→db→root).");
+    cout << "\n";
+
+    cout << HDR << "Table Commands:" << RESET << "\n";
+    printLine("make <table>(...)",    "Create a new table with columns.");
+    cout << "       " << ARG << "Syntax: make users(id INT PRIMARY, name VARCHAR)" << RESET << "\n";
+    printLine("choose <table>",       "Open a table in current database.");
+    printLine("erase <table>",        "Delete a table (inside a DB).");
+    printLine("clean",                "Remove all rows in the current table.");
+    cout << "       " << ARG << "* Must choose a table first." << RESET << "\n\n";
+
+    cout << HDR << "Data Operations:" << RESET << "\n";
+    printLine("insert <v1>,<v2>",     "Add a new row to the table.");
+    printLine("del <id(s)>",          "Delete row(s) by primary key.");
+    printLine("del column(s)",        "Delete one or more columns.");
+    printLine("del where <conds>",    "Delete rows matching condition.");
+    printLine("change ... TO ...",    "Update values under conditions.");
+    cout << "     " << ARG << "* CHANGE <colName(s)> <old_value> TO <new_value>" << RESET << "\n";
+    cout << "     " << ARG << "* CHANGE <colName(s)> <old_value> TO <new_value> Where [(cond(s))]" << RESET << "\n\n";
+
+    cout << HDR << "Query & Display:" << RESET << "\n";
+    printLine("describe",             "Show current table schema.");
+    printLine("list",                 "List databases or tables.");
+    printLine("show",                 "Display table data (head, limit, etc.).");
+    cout << "     " << ARG << "* show head - first 5 rows\n";
+    cout << "     " << ARG << "* show limit N - first N rows\n";
+    cout << "     " << ARG << "* show limit ~N - last N rows\n";
+    cout << "     " << ARG << "* show <cols> [where/like]\n\n";
+
+    cout << HDR << "Transactions & Misc:" << RESET << "\n";
+    printLine("rollback",             "Undo unsaved changes.");
+    printLine("commit",               "Save changes to disk.");
+    printLine("close",                "Close table and return to database.");
+    printLine("help",                 "Show this help screen.");
+    cout << "\n" << TIT << "==================================================================" << RESET << "\n\n";
+}
 // Lists all databases (directories) in the root DBMS folder.
 void listDatabases() {
     fs::path rootPath = fs::path(fs_path);  // Root DBMS folder

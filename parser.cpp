@@ -8,7 +8,7 @@ extern string currentTable;    // Currently selected table name (empty if none)
 extern bool exitProgram;  // Declaration of the global variable
 
 // Global pointer to the current Table instance.
-Table* currentTableInstance = nullptr;
+extern Table* currentTableInstance;
 void exitTable() {
     // If there are unsaved changes, ask the user whether to save.
     if (currentTableInstance->unsavedChanges) {
@@ -310,8 +310,6 @@ private:
             throw logic_error("LIST -> not available in table.");
         }
     }
-    
-
     void processShow() {
         string params;
         while (!queryList.empty()) {
@@ -398,6 +396,9 @@ public:
                         processExit();
                     }
                 }
+                else if (query == HELP) {
+                    processHelp();
+                }                
                 else if (query == DESCRIBE) {
                     processDescribe();
                 }

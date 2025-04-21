@@ -23,3 +23,4 @@
 #define TILDE '~'
 #define TO "to"
 #define DESCRIBE "describe"
+#define HELP "help"
