@@ -68,6 +68,9 @@ Compile directly with g++ for quick iteration and testing:
 # Standard build (no SSL)
 g++ -std=c++17 main.cpp table.cpp database.cpp file_utils.cpp -o qilodb
 
+# Build with SSL (windows only)
+g++ -std=c++17 -static main.cpp -IC:\OpenSSL-Win64\include -LC:\OpenSSL-Win64\lib -lssl -lcrypto -lws2_32 -lgdi32 -lcrypt32 -luser32 -o qilodb
+
 # SSL-enabled build (macOS Homebrew OpenSSL)
 g++ -std=c++17 main.cpp -I/opt/homebrew/opt/openssl@3/include -L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -o qilo
 ```  
